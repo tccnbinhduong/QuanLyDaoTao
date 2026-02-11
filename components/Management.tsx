@@ -1,16 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { Teacher, Subject, ClassEntity, ScheduleStatus } from '../types';
-import { Plus, Trash2, Edit2, Download, Save, X, Filter, Search, Phone } from 'lucide-react';
+import { Plus, Trash2, Edit2, Download, Save, X, Filter, Search, Phone, Upload, HelpCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import vi from 'date-fns/locale/vi';
 import { parseLocal } from '../utils';
+import * as XLSX from 'xlsx';
 
 const Management: React.FC = () => {
   const { 
     teachers, subjects, majors, classes, schedules,
-    addTeacher, updateTeacher, deleteTeacher, 
-    addSubject, updateSubject, deleteSubject, 
+    addTeacher, updateTeacher, deleteTeacher, importTeachers,
+    addSubject, updateSubject, deleteSubject, importSubjects,
     addClass, updateClass, deleteClass 
   } = useApp();
   
@@ -26,6 +27,9 @@ const Management: React.FC = () => {
 
   const [newClass, setNewClass] = useState<Partial<ClassEntity>>({});
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
+
+  const fileInputTeacherRef = useRef<HTMLInputElement>(null);
+  const fileInputSubjectRef = useRef<HTMLInputElement>(null);
 
   // Handlers
   const handleSaveTeacher = () => {
@@ -58,6 +62,52 @@ const Management: React.FC = () => {
     setNewTeacher({});
     setEditingTeacherId(null);
   }
+
+  const handleTeacherFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const bstr = evt.target?.result;
+              const wb = XLSX.read(bstr, { type: 'binary' });
+              const wsname = wb.SheetNames[0];
+              const ws = wb.Sheets[wsname];
+              const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+              
+              if (!data || data.length < 2) {
+                  alert("File Excel rỗng hoặc không đúng định dạng!");
+                  return;
+              }
+
+              // Remove header
+              const rows = data.slice(1) as any[];
+              
+              // Map columns: 0: Name, 1: Phone, 2: Bank, 3: Account, 4: Rate
+              const newTeachers: Omit<Teacher, 'id'>[] = rows.map(row => ({
+                  name: row[0] || '',
+                  phone: row[1] ? String(row[1]) : '',
+                  bank: row[2] ? String(row[2]) : '',
+                  accountNumber: row[3] ? String(row[3]) : '',
+                  mainSubject: '', // Default empty, user can update later
+                  ratePerPeriod: row[4] ? Number(row[4]) : 0
+              })).filter(t => t.name);
+
+              if (newTeachers.length > 0) {
+                  importTeachers(newTeachers);
+                  alert(`Đã nhập thành công ${newTeachers.length} giáo viên.`);
+              } else {
+                  alert("Không tìm thấy dữ liệu hợp lệ.");
+              }
+          } catch (error) {
+              console.error(error);
+              alert("Lỗi khi đọc file Excel.");
+          }
+          if (fileInputTeacherRef.current) fileInputTeacherRef.current.value = '';
+      };
+      reader.readAsBinaryString(file);
+  };
 
   const handleSaveSubject = () => {
     const selectedMajor = newSubject.majorId || filterMajorId;
@@ -94,6 +144,60 @@ const Management: React.FC = () => {
     setNewSubject(filterMajorId ? { majorId: filterMajorId } : {});
     setEditingSubjectId(null);
   }
+
+  const handleSubjectFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const bstr = evt.target?.result;
+              const wb = XLSX.read(bstr, { type: 'binary' });
+              const wsname = wb.SheetNames[0];
+              const ws = wb.Sheets[wsname];
+              const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+              if (!data || data.length < 2) {
+                  alert("File Excel rỗng hoặc không đúng định dạng!");
+                  return;
+              }
+
+              const rows = data.slice(1) as any[];
+              
+              // Map columns: 0: Name, 1: Major Name, 2: Periods
+              const newSubjects: Omit<Subject, 'id'>[] = rows.map(row => {
+                  const majorName = row[1] ? String(row[1]).trim() : '';
+                  const major = majors.find(m => m.name.toLowerCase() === majorName.toLowerCase());
+                  
+                  return {
+                      name: row[0] || '',
+                      majorId: major ? major.id : '', // If not found, leave empty or assign to default?
+                      totalPeriods: row[2] ? Number(row[2]) : 30,
+                  };
+              }).filter(s => s.name);
+
+               // Warn if some majors weren't found
+               const missingMajors = newSubjects.filter(s => !s.majorId).length;
+               
+               if (newSubjects.length > 0) {
+                   importSubjects(newSubjects);
+                   let msg = `Đã nhập thành công ${newSubjects.length} môn học.`;
+                   if (missingMajors > 0) {
+                       msg += `\nLưu ý: Có ${missingMajors} môn chưa tìm thấy Ngành học tương ứng trong hệ thống (vui lòng kiểm tra tên Ngành trong file Excel hoặc cập nhật thủ công).`;
+                   }
+                   alert(msg);
+               } else {
+                   alert("Không tìm thấy dữ liệu hợp lệ.");
+               }
+          } catch (error) {
+              console.error(error);
+              alert("Lỗi khi đọc file Excel.");
+          }
+           if (fileInputSubjectRef.current) fileInputSubjectRef.current.value = '';
+      };
+      reader.readAsBinaryString(file);
+  };
 
   const handleSaveClass = () => {
     if (newClass.name && newClass.majorId) {
@@ -236,20 +340,34 @@ const Management: React.FC = () => {
                </div>
             </div>
 
-            <div className="bg-white p-3 rounded shadow border border-gray-100 flex items-center gap-3">
-              <Search size={20} className="text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Tìm kiếm giáo viên theo tên..." 
-                className="flex-1 outline-none text-sm"
-                value={teacherSearch}
-                onChange={(e) => setTeacherSearch(e.target.value)}
-              />
-              {teacherSearch && (
-                <button onClick={() => setTeacherSearch('')} className="text-gray-400 hover:text-gray-600">
-                  <X size={16} />
-                </button>
-              )}
+            <div className="bg-white p-3 rounded shadow border border-gray-100 flex flex-col md:flex-row items-center gap-3">
+              <div className="flex items-center gap-2 flex-1 w-full">
+                  <Search size={20} className="text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Tìm kiếm giáo viên theo tên..." 
+                    className="flex-1 outline-none text-sm"
+                    value={teacherSearch}
+                    onChange={(e) => setTeacherSearch(e.target.value)}
+                  />
+                  {teacherSearch && (
+                    <button onClick={() => setTeacherSearch('')} className="text-gray-400 hover:text-gray-600">
+                      <X size={16} />
+                    </button>
+                  )}
+              </div>
+              <div className="flex items-center gap-2">
+                 <input type="file" ref={fileInputTeacherRef} accept=".xlsx,.xls" className="hidden" onChange={handleTeacherFileUpload} />
+                 <button onClick={() => fileInputTeacherRef.current?.click()} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 border border-green-200">
+                    <Upload size={16} /> Nhập Excel
+                 </button>
+                 <div className="relative group">
+                    <HelpCircle size={18} className="text-gray-400 cursor-help" />
+                    <div className="absolute right-0 top-8 w-64 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10 hidden group-hover:block">
+                       File Excel: <strong>Họ tên | Điện thoại | Ngân hàng | Số TK | Thù lao</strong>
+                    </div>
+                 </div>
+              </div>
             </div>
 
             <div className="bg-white rounded shadow overflow-hidden">
@@ -292,9 +410,11 @@ const Management: React.FC = () => {
 
        {activeTab === 'subjects' && (
          <div className="space-y-4">
-             <div className="bg-white p-4 rounded shadow flex items-center gap-3 border border-blue-100">
-                 <Filter size={20} className="text-blue-600" />
-                 <span className="font-semibold text-gray-700">Lọc theo ngành:</span>
+             <div className="bg-white p-4 rounded shadow flex flex-col md:flex-row items-center gap-3 border border-blue-100">
+                 <div className="flex items-center gap-2 w-full md:w-auto">
+                    <Filter size={20} className="text-blue-600" />
+                    <span className="font-semibold text-gray-700 whitespace-nowrap">Lọc theo ngành:</span>
+                 </div>
                  <select 
                    className="border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 flex-1 max-w-md bg-gray-50"
                    value={filterMajorId}
@@ -306,6 +426,20 @@ const Management: React.FC = () => {
                     <option value="">-- Tất cả các ngành --</option>
                     {majors.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                  </select>
+
+                 <div className="flex items-center gap-2 ml-auto">
+                     <input type="file" ref={fileInputSubjectRef} accept=".xlsx,.xls" className="hidden" onChange={handleSubjectFileUpload} />
+                     <button onClick={() => fileInputSubjectRef.current?.click()} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 border border-green-200">
+                        <Upload size={16} /> Nhập Excel
+                     </button>
+                      <div className="relative group">
+                        <HelpCircle size={18} className="text-gray-400 cursor-help" />
+                        <div className="absolute right-0 top-8 w-64 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10 hidden group-hover:block">
+                           File Excel: <strong>Tên môn | Ngành học | Số tiết</strong>
+                           <br/><span className="text-[10px] opacity-75">Tên Ngành cần khớp với hệ thống.</span>
+                        </div>
+                     </div>
+                 </div>
              </div>
 
              <div className="bg-white p-4 rounded shadow space-y-4">

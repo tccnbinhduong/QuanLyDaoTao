@@ -6,9 +6,11 @@ interface AppContextType extends AppState {
   addTeacher: (t: Omit<Teacher, 'id'>) => void;
   updateTeacher: (id: string, t: Partial<Teacher>) => void;
   deleteTeacher: (id: string) => void;
+  importTeachers: (teachers: Omit<Teacher, 'id'>[]) => void;
   addSubject: (s: Omit<Subject, 'id'>) => void;
   updateSubject: (id: string, s: Partial<Subject>) => void;
   deleteSubject: (id: string) => void;
+  importSubjects: (subjects: Omit<Subject, 'id'>[]) => void;
   addSchedule: (s: Omit<ScheduleItem, 'id' | 'status'>) => void;
   updateSchedule: (id: string, s: Partial<ScheduleItem>) => void;
   deleteSchedule: (id: string) => void;
@@ -43,8 +45,8 @@ const INITIAL_DATA: AppState = {
     { id: '2', name: 'Kế toán K15', studentCount: 35, majorId: '1', schoolYear: '2023-2026' },
   ],
   students: [
-    { id: '1', classId: '1', name: 'Nguyễn Văn A', dob: '2005-01-15', pob: 'Hà Nội', fatherName: 'Nguyễn Văn B', motherName: 'Lê Thị C', phone: '0987654321' },
-    { id: '2', classId: '1', name: 'Trần Thị B', dob: '2005-05-20', pob: 'Nam Định', fatherName: 'Trần Văn D', motherName: 'Phạm Thị E', phone: '0912345678' },
+    { id: '1', studentCode: 'SV001', classId: '1', name: 'Nguyễn Văn A', dob: '2005-01-15', pob: 'Hà Nội', fatherName: 'Nguyễn Văn B', motherName: 'Lê Thị C', phone: '0987654321' },
+    { id: '2', studentCode: 'SV002', classId: '1', name: 'Trần Thị B', dob: '2005-05-20', pob: 'Nam Định', fatherName: 'Trần Văn D', motherName: 'Phạm Thị E', phone: '0912345678' },
   ],
   majors: [
     { id: '1', name: 'Kế toán Doanh nghiệp' },
@@ -83,6 +85,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTeacher = (id: string) => {
     setState(prev => ({ ...prev, teachers: prev.teachers.filter(t => t.id !== id) }));
   };
+  const importTeachers = (newTeachers: Omit<Teacher, 'id'>[]) => {
+      setState(prev => ({
+          ...prev,
+          teachers: [...prev.teachers, ...newTeachers.map(t => ({...t, id: generateId()}))]
+      }));
+  }
 
   const addSubject = (s: Omit<Subject, 'id'>) => {
     setState(prev => ({ ...prev, subjects: [...prev.subjects, { ...s, id: generateId() }] }));
@@ -96,6 +104,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteSubject = (id: string) => {
     setState(prev => ({ ...prev, subjects: prev.subjects.filter(s => s.id !== id) }));
   };
+  const importSubjects = (newSubjects: Omit<Subject, 'id'>[]) => {
+      setState(prev => ({
+          ...prev,
+          subjects: [...prev.subjects, ...newSubjects.map(s => ({...s, id: generateId()}))]
+      }));
+  }
 
   const addClass = (c: Omit<ClassEntity, 'id'>) => {
     setState(prev => ({ ...prev, classes: [...prev.classes, { ...c, id: generateId() }] }));
@@ -165,8 +179,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider value={{ 
       ...state, 
-      addTeacher, updateTeacher, deleteTeacher, 
-      addSubject, updateSubject, deleteSubject, 
+      addTeacher, updateTeacher, deleteTeacher, importTeachers,
+      addSubject, updateSubject, deleteSubject, importSubjects,
       addSchedule, updateSchedule, deleteSchedule, 
       addClass, updateClass, deleteClass,
       addStudent, updateStudent, deleteStudent, importStudents,

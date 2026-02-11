@@ -183,19 +183,20 @@ const ScheduleManager: React.FC = () => {
   };
 
   const handleExportExcel = () => {
-    // Flatten data for grid representation
-    // We want columns: Buổi | Tiết | Mon | Tue | ...
+    const wb = XLSX.utils.book_new();
     const data: any[] = [];
     
-    // Header
+    // 1. Header Row
     const header = ['Buổi', 'Tiết', ...weekDays.map(d => format(d, 'EEEE - dd/MM', { locale: vi }).toUpperCase())];
     data.push(header);
 
-    // Rows for periods 1-10
+    // 2. Data Rows (Periods 1-10)
     PERIODS.forEach(p => {
-        const sessionName = getSessionFromPeriod(p);
+        // Buổi Label (Only for row 1 and 6, others empty for merge)
+        const sessionName = p === 1 ? 'Sáng' : (p === 6 ? 'Chiều' : '');
+        
         const rowData: any[] = [
-             (p === 1 || p === 6) ? sessionName : '', // Merge visual in excel later? just text for now
+             sessionName,
              p
         ];
 
@@ -204,22 +205,23 @@ const ScheduleManager: React.FC = () => {
             const item = filteredSchedules.find(s => s.date === dateStr && s.startPeriod <= p && (s.startPeriod + s.periodCount) > p);
             
             if (item) {
-                // If it's the first period of the block, show full info, else show placeholder or merged
+                // Only write content if it's the starting period of the class
                 if (item.startPeriod === p) {
                     const subj = subjects.find(s => s.id === item.subjectId);
                     const tea = teachers.find(t => t.id === item.teacherId);
                     const progress = calculateSubjectProgress(item.subjectId, item.classId, subj?.totalPeriods || 0, schedules);
                     
-                    let cellText = `${subj?.name} (${item.status === ScheduleStatus.OFF ? 'NGHỈ' : ''})`;
-                    if (item.type === 'exam') cellText = `THI: ${subj?.name}`;
+                    let cellText = `${subj?.name}`;
+                    if (item.status === ScheduleStatus.OFF) cellText += ` (NGHỈ)`;
+                    else if (item.type === 'exam') cellText = `THI: ${subj?.name}`;
                     
                     cellText += `\nGV: ${tea?.name}`;
-                    cellText += `\nPhòng: ${item.roomId}`;
+                    cellText += `\nPH: ${item.roomId}`;
                     cellText += `\nTiết: ${progress.learned}/${subj?.totalPeriods}`;
                     
                     rowData.push(cellText);
                 } else {
-                    rowData.push('---'); // Placeholder for merged cell
+                    rowData.push(null); // Return null to indicate merged cell coverage
                 }
             } else {
                 rowData.push('');
@@ -228,8 +230,42 @@ const ScheduleManager: React.FC = () => {
         data.push(rowData);
     });
 
+    // 3. Footer (Legend)
+    data.push([]); // Empty row
+    const footer1 = ["Sáng:", "", "Tiết 1: 7h30 - 8h15   Tiết 2: 8h15 - 9h00   Ra chơi: 30 phút   Tiết 3: 9h30 - 10h15   Tiết 4: 10h15 - 11h00"];
+    const footer2 = ["Chiều:", "", "Tiết 1: 13h15 - 14h00   Tiết 2: 14h00 - 14h45   Ra chơi: 15 phút   Tiết 3: 15h00 - 15h45   Tiết 4: 15h45 - 16h30"];
+    
+    data.push(footer1);
+    data.push(footer2);
+
     const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
+
+    // 4. Styling & Merges
+    if(!ws['!merges']) ws['!merges'] = [];
+    
+    // Merge "Buổi" column (Sáng: rows 1-5, Chiều: rows 6-10)
+    // Note: Data array index starts at 0 (Header). So Row 1 (Period 1) is index 1.
+    ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 5, c: 0 } }); // Sáng
+    ws['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 10, c: 0 } }); // Chiều
+
+    // Merge Footer Legend Text
+    // Footer starts after: Header (1) + 10 periods + 1 empty row = Index 12
+    const footerRowStart = 12;
+    ws['!merges'].push({ s: { r: footerRowStart, c: 2 }, e: { r: footerRowStart, c: 7 } }); // Merge Mon-Sat cols for footer text
+    ws['!merges'].push({ s: { r: footerRowStart + 1, c: 2 }, e: { r: footerRowStart + 1, c: 7 } });
+
+    // Set Column Widths
+    ws['!cols'] = [
+        { wch: 8 },  // Col A: Buổi
+        { wch: 5 },  // Col B: Tiết
+        { wch: 25 }, // Mon
+        { wch: 25 }, // Tue
+        { wch: 25 }, // Wed
+        { wch: 25 }, // Thu
+        { wch: 25 }, // Fri
+        { wch: 25 }, // Sat
+    ];
+
     XLSX.utils.book_append_sheet(wb, ws, "Lịch Học");
     XLSX.writeFile(wb, `Lich_Hoc_${classes.find(c => c.id === selectedClassId)?.name}_Tuan_${weekNumber}.xlsx`);
   };

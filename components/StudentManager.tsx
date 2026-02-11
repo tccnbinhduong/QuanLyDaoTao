@@ -3,6 +3,8 @@ import { useApp } from '../store/AppContext';
 import { Student } from '../types';
 import { Plus, Trash2, Edit2, Upload, Save, X, Filter, User, HelpCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
+import { parseLocal } from '../utils';
 
 const StudentManager: React.FC = () => {
   const { classes, students, addStudent, updateStudent, deleteStudent, importStudents } = useApp();
@@ -21,6 +23,7 @@ const StudentManager: React.FC = () => {
   const handleOpenAdd = () => {
     setFormData({ 
         classId: selectedClassId,
+        studentCode: '',
         name: '', dob: '', pob: '', fatherName: '', motherName: '', phone: '' 
     });
     setEditingStudentId(null);
@@ -40,6 +43,7 @@ const StudentManager: React.FC = () => {
     }
 
     const studentData: any = {
+        studentCode: formData.studentCode || '',
         name: formData.name,
         classId: formData.classId,
         dob: formData.dob || '',
@@ -82,15 +86,16 @@ const StudentManager: React.FC = () => {
             // Remove header row
             const rows = data.slice(1) as any[]; 
             
-            // Map data to Student structure (Assumption: Col 0: Name, Col 1: DOB, Col 2: POB, Col 3: Father, Col 4: Mother, Col 5: Phone)
+            // Map data to Student structure (Col 0: Code, Col 1: Name, Col 2: DOB, Col 3: POB, Col 4: Father, Col 5: Mother, Col 6: Phone)
             const newStudents: Omit<Student, 'id'>[] = rows.map(row => ({
                 classId: selectedClassId,
-                name: row[0] || '',
-                dob: row[1] ? String(row[1]) : '',
-                pob: row[2] ? String(row[2]) : '',
-                fatherName: row[3] ? String(row[3]) : '',
-                motherName: row[4] ? String(row[4]) : '',
-                phone: row[5] ? String(row[5]) : ''
+                studentCode: row[0] ? String(row[0]) : '',
+                name: row[1] || '',
+                dob: row[2] ? String(row[2]) : '',
+                pob: row[3] ? String(row[3]) : '',
+                fatherName: row[4] ? String(row[4]) : '',
+                motherName: row[5] ? String(row[5]) : '',
+                phone: row[6] ? String(row[6]) : ''
             })).filter(s => s.name); // Filter empty rows
 
             if (newStudents.length > 0) {
@@ -153,7 +158,7 @@ const StudentManager: React.FC = () => {
 
       <div className="bg-blue-50 text-blue-800 p-3 rounded text-xs flex items-center border border-blue-200">
          <HelpCircle size={16} className="mr-2" />
-         <span>Lưu ý file Excel nhập liệu: Dòng 1 là tiêu đề. Các cột theo thứ tự: <strong>Họ tên | Ngày sinh | Nơi sinh | Bố | Mẹ | Điện thoại</strong></span>
+         <span>Lưu ý file Excel nhập liệu: Dòng 1 là tiêu đề. Các cột theo thứ tự: <strong>Mã HS | Họ tên | Ngày sinh | Nơi sinh | Bố | Mẹ | Điện thoại</strong></span>
       </div>
 
       {/* Student List */}
@@ -167,6 +172,7 @@ const StudentManager: React.FC = () => {
                 <thead className="bg-gray-100 text-gray-600 uppercase">
                     <tr>
                         <th className="p-3 border-b">STT</th>
+                        <th className="p-3 border-b">Mã HS</th>
                         <th className="p-3 border-b">Họ tên</th>
                         <th className="p-3 border-b">Ngày sinh</th>
                         <th className="p-3 border-b">Nơi sinh</th>
@@ -178,7 +184,7 @@ const StudentManager: React.FC = () => {
                 <tbody className="divide-y">
                     {filteredStudents.length === 0 ? (
                         <tr>
-                            <td colSpan={7} className="p-8 text-center text-gray-400 italic">
+                            <td colSpan={8} className="p-8 text-center text-gray-400 italic">
                                 Chưa có học sinh nào trong lớp này. Hãy thêm mới hoặc nhập từ Excel.
                             </td>
                         </tr>
@@ -186,8 +192,17 @@ const StudentManager: React.FC = () => {
                         filteredStudents.map((s, index) => (
                             <tr key={s.id} className="hover:bg-blue-50 transition">
                                 <td className="p-3 text-center text-gray-500">{index + 1}</td>
+                                <td className="p-3 font-semibold text-blue-600">{s.studentCode}</td>
                                 <td className="p-3 font-medium text-gray-800">{s.name}</td>
-                                <td className="p-3">{s.dob}</td>
+                                <td className="p-3">
+                                    {s.dob ? (() => {
+                                        try {
+                                            return format(parseLocal(s.dob), 'dd/MM/yyyy');
+                                        } catch {
+                                            return s.dob;
+                                        }
+                                    })() : ''}
+                                </td>
                                 <td className="p-3">{s.pob}</td>
                                 <td className="p-3">
                                     <div className="text-xs">
@@ -230,7 +245,16 @@ const StudentManager: React.FC = () => {
                 
                 <div className="p-6 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2">
+                         <div className="md:col-span-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Mã học sinh</label>
+                            <input 
+                                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" 
+                                value={formData.studentCode || ''} 
+                                onChange={e => setFormData({...formData, studentCode: e.target.value})}
+                                placeholder="Nhập mã HS..."
+                            />
+                        </div>
+                        <div className="md:col-span-1">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Họ và tên <span className="text-red-500">*</span></label>
                             <input 
                                 className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" 

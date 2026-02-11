@@ -43,6 +43,7 @@ export interface ClassEntity {
 
 export interface Student {
   id: string;
+  studentCode: string; // New field
   classId: string;
   name: string;
   dob: string; // YYYY-MM-DD
