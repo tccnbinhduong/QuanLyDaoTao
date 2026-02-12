@@ -40,9 +40,14 @@ export const checkConflict = (
       const overlap = (newItem.startPeriod < itemEnd) && (newItemEnd > item.startPeriod);
 
       if (overlap) {
+        // 1. Absolute rule: Cannot schedule the EXACT SAME subject for the EXACT SAME class at the same time.
+        // This prevents accidental double-entries, which is likely a mistake even for shared subjects.
+        if (item.classId === newItem.classId && item.subjectId === newItem.subjectId) {
+             return { hasConflict: true, message: `Lớp này đã có lịch môn này vào giờ này rồi.` };
+        }
+
         // Shared Subject Logic:
-        // If the subject is marked as 'Shared', we ignore conflict rules as requested.
-        // This allows "Combined Class" scheduling (overlapping rooms/teachers/classes).
+        // If the subject is marked as 'Shared', we ignore other conflict rules (Room, Teacher, other Class schedules).
         if (isNewItemShared) {
             continue; 
         }
