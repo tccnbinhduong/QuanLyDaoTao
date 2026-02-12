@@ -26,6 +26,7 @@ export const checkConflict = (
   
   // Find current subject details
   const currentSubject = subjects.find(s => s.id === newItem.subjectId);
+  const isNewItemShared = !!currentSubject?.isShared;
 
   for (const item of existingItems) {
     if (excludeId && item.id === excludeId) continue;
@@ -40,30 +41,21 @@ export const checkConflict = (
 
       if (overlap) {
         // Shared Subject Logic:
-        // We allow overlap if both subjects are marked 'isShared' and have the same Name.
-        // This allows merging different classes (with different subject IDs but same subject content) into one room/teacher.
-        const existingSubject = subjects.find(s => s.id === item.subjectId);
-        
-        const isSharedContext = (
-            currentSubject?.isShared && 
-            existingSubject?.isShared && 
-            currentSubject.name === existingSubject.name
-        );
+        // If the subject is marked as 'Shared', we ignore conflict rules as requested.
+        // This allows "Combined Class" scheduling (overlapping rooms/teachers/classes).
+        if (isNewItemShared) {
+            continue; 
+        }
 
+        // Standard Checks for Normal Subjects
         if (item.roomId === newItem.roomId) {
-          if (!isSharedContext) {
              return { hasConflict: true, message: `Trùng phòng học: ${item.roomId} đã có lớp.` };
-          }
         }
         if (item.teacherId === newItem.teacherId) {
-           if (!isSharedContext) {
              return { hasConflict: true, message: `Trùng giáo viên: GV này đang dạy lớp khác.` };
-           }
         }
-        
-        // Class check is absolute. A single class cannot be in two places, even if it's a shared subject.
         if (item.classId === newItem.classId) {
-          return { hasConflict: true, message: `Trùng lịch học của lớp: Lớp này đang học môn khác.` };
+             return { hasConflict: true, message: `Trùng lịch học của lớp: Lớp này đang học môn khác.` };
         }
         
         // Specific check for exams vs class

@@ -1,15 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { Teacher, Subject, ClassEntity, ScheduleStatus } from '../types';
+import { Teacher, Subject, ClassEntity } from '../types';
 import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle, Users } from 'lucide-react';
-import { format } from 'date-fns';
-import vi from 'date-fns/locale/vi';
-import { parseLocal } from '../utils';
 import * as XLSX from 'xlsx';
 
 const Management: React.FC = () => {
   const { 
-    teachers, subjects, majors, classes, schedules,
+    teachers, subjects, majors, classes,
     addTeacher, updateTeacher, deleteTeacher, importTeachers,
     addSubject, updateSubject, deleteSubject, importSubjects,
     addClass, updateClass, deleteClass 
@@ -24,6 +21,7 @@ const Management: React.FC = () => {
   const [newSubject, setNewSubject] = useState<Partial<Subject>>({});
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [filterMajorId, setFilterMajorId] = useState<string>('');
+  const [subjectSearch, setSubjectSearch] = useState('');
 
   const [newClass, setNewClass] = useState<Partial<ClassEntity>>({});
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
@@ -361,6 +359,22 @@ const Management: React.FC = () => {
                     {majors.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                  </select>
 
+                 <div className="flex items-center gap-2 w-full md:w-auto flex-1">
+                    <Search size={20} className="text-gray-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Tìm tên môn học..." 
+                        className="border p-2 rounded outline-none text-sm w-full"
+                        value={subjectSearch}
+                        onChange={(e) => setSubjectSearch(e.target.value)}
+                    />
+                     {subjectSearch && (
+                        <button onClick={() => setSubjectSearch('')} className="text-gray-400 hover:text-gray-600">
+                          <X size={16} />
+                        </button>
+                      )}
+                 </div>
+
                  <div className="flex items-center gap-2 ml-auto">
                      <input type="file" ref={fileInputSubjectRef} accept=".xlsx,.xls" className="hidden" onChange={handleSubjectFileUpload} />
                      <button onClick={() => fileInputSubjectRef.current?.click()} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 border border-green-200">
@@ -463,7 +477,7 @@ const Management: React.FC = () => {
                   </thead>
                   <tbody>
                     {subjects
-                      .filter(s => !filterMajorId || s.majorId === filterMajorId)
+                      .filter(s => (!filterMajorId || s.majorId === filterMajorId) && s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
                       .map(s => (
                       <tr key={s.id} className="border-t hover:bg-gray-50">
                         <td className="p-3 align-top">
@@ -488,9 +502,13 @@ const Management: React.FC = () => {
                         </td>
                       </tr>
                     ))}
-                    {subjects.filter(s => !filterMajorId || s.majorId === filterMajorId).length === 0 && (
+                    {subjects.filter(s => (!filterMajorId || s.majorId === filterMajorId) && s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-gray-400 italic">Không có môn học nào {filterMajorId ? 'trong ngành này' : ''}.</td>
+                        <td colSpan={5} className="p-8 text-center text-gray-400 italic">
+                            {subjectSearch 
+                             ? `Không tìm thấy môn nào có tên "${subjectSearch}" ${filterMajorId ? 'trong ngành này' : ''}.` 
+                             : `Không có môn học nào ${filterMajorId ? 'trong ngành này' : ''}.`}
+                        </td>
                       </tr>
                     )}
                   </tbody>

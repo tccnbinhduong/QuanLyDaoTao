@@ -46,7 +46,7 @@ const Payment: React.FC = () => {
             if (learned >= sub.totalPeriods && learned > 0) {
                  // Get list of teachers who taught this subject for this class
                  const teacherIds = Array.from(new Set(relevantSchedules.map(s => s.teacherId)));
-                 const teacherNames = teacherIds.map(tid => teachers.find(t => t.id === tid)?.name).join(', ');
+                 const teacherNames = teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || 'GV đã xóa').join(', ');
 
                  results.push({
                      subjectId: sub.id,
@@ -83,7 +83,7 @@ const Payment: React.FC = () => {
       });
 
     const data = relevantSchedules.map(s => ({
-       'Giáo viên giảng dạy': teachers.find(t => t.id === s.teacherId)?.name,
+       'Giáo viên giảng dạy': teachers.find(t => t.id === s.teacherId)?.name || 'GV đã xóa',
        'Ngày dạy': format(parseLocal(s.date), 'dd/MM/yyyy'),
        'Số tiết dạy': s.periodCount,
        'Lớp': item.className

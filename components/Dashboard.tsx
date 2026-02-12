@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { BookOpen, Users, Calendar, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { format, isSameDay } from 'date-fns';
-import vi from 'date-fns/locale/vi';
+import { vi } from 'date-fns/locale';
 import { parseLocal, determineStatus } from '../utils';
 import { ScheduleStatus } from '../types';
 
@@ -66,7 +66,7 @@ const Dashboard: React.FC = () => {
             // Condition: Learned >= Total AND started (learned > 0)
             if (learned >= sub.totalPeriods && learned > 0) {
                  const teacherIds = Array.from(new Set(relevantSchedules.map(s => s.teacherId)));
-                 const teacherNames = teacherIds.map(tid => teachers.find(t => t.id === tid)?.name).join(', ');
+                 const teacherNames = teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || 'GV đã xóa').join(', ');
 
                  // Calculate End Date: Sort by date and take the last one
                  relevantSchedules.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -154,7 +154,7 @@ const Dashboard: React.FC = () => {
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-bold text-gray-800">{subj?.name}</h3>
-                        <p className="text-sm text-gray-600">GV: {tea?.name}</p>
+                        <p className="text-sm text-gray-600">GV: {tea?.name || 'GV đã xóa'}</p>
                         <p className="text-sm text-gray-500">Lớp: {cls?.name} - Phòng: {s.roomId}</p>
                       </div>
                       <div className="text-right">

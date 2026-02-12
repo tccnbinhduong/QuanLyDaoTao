@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal, determineStatus, getSessionSequenceInfo } from '../utils';
 import { ScheduleItem, ScheduleStatus } from '../types';
 import { format, addDays, isSameDay, getWeek } from 'date-fns';
-import vi from 'date-fns/locale/vi';
-import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, Edit2, FileSpreadsheet, ListFilter, X, Copy, Clipboard } from 'lucide-react';
+import { vi } from 'date-fns/locale';
+import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, FileSpreadsheet, ListFilter, X, Copy, Clipboard } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const DAYS_OF_WEEK = [
@@ -166,7 +166,7 @@ const ScheduleManager: React.FC = () => {
   };
 
   const handlePaste = () => {
-    if (!copiedItem) return;
+    if (!copiedItem || !contextMenu.target) return;
 
     // 1. Get Source Subject Info
     const sourceSubject = subjects.find(s => s.id === copiedItem.subjectId);
@@ -184,25 +184,27 @@ const ScheduleManager: React.FC = () => {
         return;
     }
 
-    // 3. Create new item using ORIGINAL time (Date & Period), NOT click location
+    // 3. Create new item using CLICKED location (Target Date & Period)
+    // This allows flexible pasting across different days/weeks
+    const targetDateStr = format(contextMenu.target.date, 'yyyy-MM-dd');
+    const targetPeriod = contextMenu.target.period;
+
     const newItem = {
         type: copiedItem.type,
         teacherId: copiedItem.teacherId,
-        subjectId: targetSubject.id, // Use the new ID found for this class
+        subjectId: targetSubject.id, 
         classId: selectedClassId,    // Paste into currently selected class
         roomId: copiedItem.roomId,
-        date: copiedItem.date,       // KEEP ORIGINAL DATE
-        session: copiedItem.session,
-        startPeriod: copiedItem.startPeriod, // KEEP ORIGINAL PERIOD
+        date: targetDateStr,
+        session: getSessionFromPeriod(targetPeriod),
+        startPeriod: targetPeriod,
         periodCount: copiedItem.periodCount,
-        status: ScheduleStatus.PENDING // Reset status
+        status: ScheduleStatus.PENDING 
     };
 
     // Check if we are pasting into the exact same class/slot (duplicate)
     if (newItem.classId === copiedItem.classId && newItem.date === copiedItem.date && newItem.startPeriod === copiedItem.startPeriod) {
-        alert("Bạn đang dán đè lên chính buổi học gốc.");
-        setContextMenu({ ...contextMenu, show: false });
-        return;
+       // Just pasting over itself, usually harmless but redundant
     }
 
     const conflict = checkConflict(newItem, schedules, subjects);
@@ -210,8 +212,6 @@ const ScheduleManager: React.FC = () => {
          alert(`Không thể dán (Trùng lịch): ${conflict.message}`);
     } else {
          addSchedule(newItem);
-         // Optional: Notify success
-         // alert(`Đã sao chép môn ${targetSubject.name} sang lớp hiện tại vào ngày ${format(parseLocal(newItem.date), 'dd/MM/yyyy')}`);
     }
     setContextMenu({ ...contextMenu, show: false });
   };
@@ -358,7 +358,7 @@ const ScheduleManager: React.FC = () => {
                     if (item.status === ScheduleStatus.OFF) cellText += ` (NGHỈ)`;
                     else if (item.type === 'exam') cellText = `THI: ${subj?.name}`;
                     
-                    cellText += `\nGV: ${tea?.name}`;
+                    cellText += `\nGV: ${tea?.name || '---'}`;
                     cellText += `\nPH: ${item.roomId}`;
                     cellText += `\nTiết: ${displayCumulative}/${subj?.totalPeriods}`;
                     
@@ -486,10 +486,16 @@ const ScheduleManager: React.FC = () => {
                        return (
                          <td 
                             key={day.toString()} 
-                            className="border p-1 hover:bg-gray-100 transition-colors"
+                            className="border p-1 hover:bg-gray-100 transition-colors cursor-pointer"
                             onDragOver={handleDragOver}
                             onDrop={(e) => handleDrop(e, day, period)}
                             onContextMenu={(e) => handleContextMenu(e, day, period)}
+                            onDoubleClick={() => { 
+                                resetForm(); 
+                                setFormDate(format(day, 'yyyy-MM-dd')); 
+                                setFormStartPeriod(period); 
+                                setShowAddModal(true); 
+                            }}
                          />
                        );
                      }
@@ -515,7 +521,7 @@ const ScheduleManager: React.FC = () => {
                          key={day.toString()} 
                          rowSpan={item.periodCount} 
                          className="border p-1 align-top relative group cursor-pointer hover:brightness-95 transition" 
-                         onClick={() => { setEditItem(item); setShowAddModal(true); }}
+                         onDoubleClick={() => { setEditItem(item); setShowAddModal(true); }}
                          draggable="true"
                          onDragStart={(e) => handleDragStart(e, item)}
                          onContextMenu={(e) => handleContextMenu(e, day, period, item)}
@@ -523,7 +529,7 @@ const ScheduleManager: React.FC = () => {
                          <div className={`h-full w-full p-2 rounded text-xs ${bgColor} flex flex-col justify-between ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}>
                            <div>
                              <div className="font-bold text-gray-800 text-sm mb-1">{subject?.name}</div>
-                             <div className="text-gray-600 mb-0.5"><span className="font-semibold">GV:</span> {teacher?.name}</div>
+                             <div className="text-gray-600 mb-0.5"><span className="font-semibold">GV:</span> {teacher?.name || '---'}</div>
                              <div className="text-gray-600 mb-0.5"><span className="font-semibold">Phòng:</span> {item.roomId}</div>
                              {item.type === 'class' && (
                                 <div className="text-gray-500 italic">Tiến độ: {displayCumulative}/{subject?.totalPeriods}</div>
@@ -573,7 +579,7 @@ const ScheduleManager: React.FC = () => {
                         : 'text-gray-400 cursor-not-allowed'
                     }`}
                 >
-                    <Clipboard size={16} className="mr-2" /> Dán lịch (Giờ cũ)
+                    <Clipboard size={16} className="mr-2" /> Dán vào ô này
                 </button>
             )}
             

@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { FileText, FileSpreadsheet, File, Trash2, Download, Upload, FolderOpen } from 'lucide-react';
 import { format } from 'date-fns';
+import { DocumentItem } from '../types';
 
 const DocumentManager: React.FC = () => {
   const { documents, addDocument, deleteDocument } = useApp();
@@ -56,7 +57,7 @@ const DocumentManager: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleDownload = (doc: any) => {
+  const handleDownload = (doc: DocumentItem) => {
     const link = document.createElement('a');
     link.href = doc.content;
     link.download = doc.name;
