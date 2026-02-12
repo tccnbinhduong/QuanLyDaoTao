@@ -76,33 +76,71 @@ export const calculateSubjectProgress = (
   };
 };
 
-export const determineStatus = (dateStr: string, startPeriod: number, currentStatus: ScheduleStatus): ScheduleStatus => {
-  // Logic to auto-update status based on time if user hasn't manually set it to OFF or MAKEUP or COMPLETED
-  // Ideally this runs on load or interval. 
-  // However, simpler approach: Return computed status only if current is PENDING or ONGOING
+// NEW: Helper to get sequence info (cumulative progress, isFirst, isLast)
+export const getSessionSequenceInfo = (
+  currentItem: ScheduleItem,
+  allSchedules: ScheduleItem[],
+  totalPeriods: number = 0
+) => {
+  // 1. Get all valid sessions for this subject & class
+  const relevantItems = allSchedules.filter(s => 
+    s.subjectId === currentItem.subjectId && 
+    s.classId === currentItem.classId && 
+    s.status !== ScheduleStatus.OFF &&
+    s.type === 'class'
+  ).sort((a, b) => {
+    // Sort by Date then by Start Period
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    if (dateA !== dateB) return dateA - dateB;
+    return a.startPeriod - b.startPeriod;
+  });
+
+  // 2. Find index of current item
+  const index = relevantItems.findIndex(s => s.id === currentItem.id);
   
+  if (index === -1) {
+    return { cumulative: 0, isFirst: false, isLast: false };
+  }
+
+  // 3. Calculate cumulative progress up to this item
+  let cumulative = 0;
+  for (let i = 0; i <= index; i++) {
+    cumulative += relevantItems[i].periodCount;
+  }
+
+  // Determine First/Last based on logical accumulation logic
+  // First: If the periods BEFORE this session was 0
+  const previousCumulative = cumulative - relevantItems[index].periodCount;
+  const isFirst = previousCumulative === 0;
+
+  // Last: If this session reaches or exceeds the total periods (if provided) 
+  // OR if it's strictly the last item in the array and we assume the schedule is complete.
+  // Using >= totalPeriods is safer for display highlighting.
+  const isLast = (totalPeriods > 0 && cumulative >= totalPeriods) || (index === relevantItems.length - 1 && totalPeriods > 0 && cumulative >= totalPeriods);
+
+  return {
+    cumulative,
+    isFirst,
+    isLast
+  };
+};
+
+export const determineStatus = (dateStr: string, startPeriod: number, currentStatus: ScheduleStatus): ScheduleStatus => {
+  // Respect manual overrides for OFF and MAKEUP
   if (currentStatus === ScheduleStatus.OFF || currentStatus === ScheduleStatus.MAKEUP) {
     return currentStatus;
   }
 
-  const now = new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
   const classDate = parseLocal(dateStr);
+  classDate.setHours(0, 0, 0, 0);
   
-  // Create Date objects for start/end time of class (Approximation)
-  // Morning starts 7:00, periods are 45m.
-  // Period 1: 7:00. Period 6 (Afternoon start): 13:00.
-  const isAfternoon = startPeriod > 5;
-  const startHour = isAfternoon ? 13 + (startPeriod - 6) : 7 + (startPeriod - 1);
-  
-  const classStartTime = new Date(classDate);
-  classStartTime.setHours(startHour, 0, 0, 0);
-  
-  const classEndTime = new Date(classStartTime);
-  classEndTime.setHours(startHour + 1, 0, 0, 0); // Approx duration
+  if (classDate < today) return ScheduleStatus.COMPLETED;
+  if (classDate > today) return ScheduleStatus.PENDING;
 
-  if (now > classEndTime) return ScheduleStatus.COMPLETED;
-  if (now >= classStartTime && now <= classEndTime) return ScheduleStatus.ONGOING;
-  if (now < classStartTime) return ScheduleStatus.PENDING;
-
-  return currentStatus;
+  // If dates are equal
+  return ScheduleStatus.ONGOING;
 };

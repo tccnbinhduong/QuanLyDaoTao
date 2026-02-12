@@ -1,13 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { Student } from '../types';
-import { Plus, Trash2, Edit2, Upload, Save, X, Filter, User, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Upload, Save, X, Filter, User, HelpCircle, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { parseLocal } from '../utils';
 
 const StudentManager: React.FC = () => {
-  const { classes, students, addStudent, updateStudent, deleteStudent, importStudents } = useApp();
+  const { classes, students, majors, addStudent, updateStudent, deleteStudent, importStudents } = useApp();
   const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
   
   const [showModal, setShowModal] = useState(false);
@@ -115,6 +115,89 @@ const StudentManager: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
+  const handleExportClassList = () => {
+    if (!currentClass) return;
+    const currentMajor = majors.find(m => m.id === currentClass.majorId);
+    
+    // Create new Workbook
+    const wb = XLSX.utils.book_new();
+    const wsData = [];
+
+    // 1. Title
+    // Merged Center Title "DANH SÁCH HỌC SINH"
+    wsData.push(["", "", "DANH SÁCH HỌC SINH"]); 
+    wsData.push([""]); // Spacer
+
+    // 2. Info Section (Left and Right)
+    // Row 2
+    wsData.push(["Môn:", "", "", "Khóa học:", currentClass.schoolYear]);
+    // Row 3
+    wsData.push(["Lớp:", currentClass.name, "", "Bậc đào tạo:", "Trung cấp chuyên nghiệp"]);
+    // Row 4
+    wsData.push(["Ngành:", currentMajor?.name || "", "", "Loại hình đào tạo:", "Chính quy"]);
+    wsData.push([""]); // Spacer
+
+    // 3. Table Header
+    // Columns: STT, MSSV, Họ, Tên, Ngày sinh, Ghi chú
+    wsData.push(["STT", "MSSV", "Họ", "Tên", "Ngày sinh", "Ghi chú"]);
+
+    // 4. Data Rows
+    filteredStudents.forEach((s, index) => {
+        // Split name into Last Name (Họ) and First Name (Tên)
+        const parts = s.name.trim().split(' ');
+        const firstName = parts.length > 0 ? parts[parts.length - 1] : '';
+        const lastName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+        
+        let dobStr = s.dob;
+        try { dobStr = format(parseLocal(s.dob), 'dd/MM/yyyy'); } catch {}
+
+        wsData.push([
+            index + 1,
+            s.studentCode,
+            lastName,
+            firstName,
+            dobStr,
+            "" // Ghi chú empty
+        ]);
+    });
+
+    // Add some empty rows if list is small to look good
+    if (filteredStudents.length < 5) {
+        for(let i=0; i< (5 - filteredStudents.length); i++) {
+            wsData.push([filteredStudents.length + i + 1, "", "", "", "", ""]);
+        }
+    }
+
+    // Create Sheet
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // 5. Apply Merges
+    if (!ws['!merges']) ws['!merges'] = [];
+    ws['!merges'].push(
+        // Title Span (Center roughly over cols C-D)
+        { s: { r: 0, c: 2 }, e: { r: 0, c: 4 } },
+        
+        // Info Section Right side spans (Training info often takes more space)
+        // Row 3 "Trung cấp..."
+        { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
+        // Row 4 "Chính quy"
+        { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } }
+    );
+
+    // 6. Column Widths
+    ws['!cols'] = [
+        { wch: 5 },  // STT
+        { wch: 12 }, // MSSV
+        { wch: 25 }, // Họ
+        { wch: 10 }, // Tên
+        { wch: 15 }, // Ngày sinh
+        { wch: 20 }  // Ghi chú
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "DanhSachHocSinh");
+    XLSX.writeFile(wb, `DanhSach_${currentClass.name}.xlsx`);
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Quản lý Học sinh - Sinh viên</h1>
@@ -143,15 +226,21 @@ const StudentManager: React.FC = () => {
             />
             <button 
                 onClick={handleImportClick}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
             >
-                <Upload size={18} /> Nhập Excel
+                <Upload size={16} /> Nhập Excel
             </button>
             <button 
                 onClick={handleOpenAdd}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm"
             >
-                <Plus size={18} /> Thêm mới
+                <Plus size={16} /> Thêm mới
+            </button>
+            <button 
+                onClick={handleExportClassList}
+                className="flex items-center gap-2 px-3 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition text-sm"
+            >
+                <FileSpreadsheet size={16} /> Danh sách lớp
             </button>
         </div>
       </div>

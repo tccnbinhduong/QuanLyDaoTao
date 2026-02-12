@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
-import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal } from '../utils';
+import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal, determineStatus, getSessionSequenceInfo } from '../utils';
 import { ScheduleItem, ScheduleStatus } from '../types';
 import { format, addDays, isSameDay, getWeek } from 'date-fns';
 import vi from 'date-fns/locale/vi';
-import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, Edit2, FileSpreadsheet, ListFilter, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, Edit2, FileSpreadsheet, ListFilter, X, FileText, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const DAYS_OF_WEEK = [
@@ -25,6 +25,9 @@ const ScheduleManager: React.FC = () => {
   const [viewDate, setViewDate] = useState(new Date());
   const [showAddModal, setShowAddModal] = useState(false);
   const [editItem, setEditItem] = useState<ScheduleItem | null>(null);
+  
+  // State for Drag and Drop
+  const [draggedItem, setDraggedItem] = useState<ScheduleItem | null>(null);
 
   // Form State
   const [formTeacherId, setFormTeacherId] = useState('');
@@ -84,22 +87,79 @@ const ScheduleManager: React.FC = () => {
     setFormType('class');
   };
 
+  // Drag and Drop Handlers
+  const handleDragStart = (e: React.DragEvent, item: ScheduleItem) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = "copy";
+    // Optional: Set a custom drag image or data if needed
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Allows dropping
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent, targetDate: Date, targetPeriod: number) => {
+    e.preventDefault();
+    if (!draggedItem) return;
+
+    const targetDateStr = format(targetDate, 'yyyy-MM-dd');
+
+    // Avoid copying to the exact same slot
+    if (draggedItem.date === targetDateStr && draggedItem.startPeriod === targetPeriod) {
+        setDraggedItem(null);
+        return;
+    }
+
+    // Create new item based on dragged item
+    const newItem = {
+        type: draggedItem.type,
+        teacherId: draggedItem.teacherId,
+        subjectId: draggedItem.subjectId,
+        classId: draggedItem.classId,
+        roomId: draggedItem.roomId,
+        date: targetDateStr,
+        session: getSessionFromPeriod(targetPeriod),
+        startPeriod: targetPeriod,
+        periodCount: draggedItem.periodCount,
+    };
+
+    // Check conflicts
+    const conflict = checkConflict(newItem, schedules); 
+    if (conflict.hasConflict) {
+        alert(`Không thể sao chép: ${conflict.message}`);
+    } else {
+        addSchedule(newItem);
+    }
+    setDraggedItem(null);
+  };
+
   const handleSaveSchedule = () => {
-    if (!formTeacherId || !formSubjectId || !formRoom || !selectedClassId) {
+    // Determine values based on whether we are editing or creating
+    const teacherId = editItem ? editItem.teacherId : formTeacherId;
+    const subjectId = editItem ? editItem.subjectId : formSubjectId;
+    const roomId = editItem ? editItem.roomId : formRoom;
+    const classId = editItem ? editItem.classId : selectedClassId;
+    const type = editItem ? editItem.type : formType;
+    const date = editItem ? editItem.date : formDate;
+    const startPeriod = editItem ? editItem.startPeriod : formStartPeriod;
+    const periodCount = editItem ? editItem.periodCount : formPeriodCount;
+
+    if (!teacherId || !subjectId || !roomId || !classId) {
       setFormError('Vui lòng điền đầy đủ thông tin');
       return;
     }
 
     const newItem = {
-      type: formType,
-      teacherId: formTeacherId,
-      subjectId: formSubjectId,
-      classId: selectedClassId,
-      roomId: formRoom,
-      date: formDate,
-      session: getSessionFromPeriod(formStartPeriod),
-      startPeriod: formStartPeriod,
-      periodCount: formPeriodCount,
+      type,
+      teacherId,
+      subjectId,
+      classId,
+      roomId,
+      date,
+      session: getSessionFromPeriod(startPeriod),
+      startPeriod,
+      periodCount,
     };
 
     const conflict = checkConflict(newItem, schedules, editItem?.id);
@@ -120,13 +180,23 @@ const ScheduleManager: React.FC = () => {
 
   const handleContinueNextWeek = () => {
     // Logic: Copy current week's schedule to next week if subjects not finished
+    // Sort chronologically to handle multi-session subjects correctly for "remaining" calculation
     const currentWeekSchedules = filteredSchedules.filter(s => {
        const d = parseLocal(s.date);
        return d >= weekStart && d < addDays(weekStart, 6);
+    }).sort((a, b) => {
+        const da = parseLocal(a.date).getTime();
+        const db = parseLocal(b.date).getTime();
+        if (da !== db) return da - db;
+        return a.startPeriod - b.startPeriod;
     });
 
     let addedCount = 0;
     let warnings: string[] = [];
+    
+    // Track extra periods scheduled in this batch to adjust "remaining" calculation dynamically
+    // Key: subjectId-classId
+    const addedPeriodsMap: Record<string, number> = {};
 
     currentWeekSchedules.forEach(item => {
       // Skip exams - only continue regular classes
@@ -135,10 +205,17 @@ const ScheduleManager: React.FC = () => {
       const subject = subjects.find(s => s.id === item.subjectId);
       if (!subject) return;
 
+      // Uniquely identify the subject enrollment
+      const key = `${item.subjectId}-${item.classId}`;
+      const previouslyAdded = addedPeriodsMap[key] || 0;
+
       const progress = calculateSubjectProgress(item.subjectId, item.classId, subject.totalPeriods, schedules);
       
+      // Real remaining periods considering what we've already scheduled in this loop
+      const currentRemaining = progress.remaining - previouslyAdded;
+      
       // If remaining periods > 0, schedule next week
-      if (progress.remaining > 0) {
+      if (currentRemaining > 0) {
         const nextDate = addDays(parseLocal(item.date), 7);
         const newDateStr = format(nextDate, 'yyyy-MM-dd');
         
@@ -150,8 +227,8 @@ const ScheduleManager: React.FC = () => {
         );
 
         if (!exists) {
-          // Adjust period count if remaining is less than usual
-          const periodsToTeach = Math.min(item.periodCount, progress.remaining);
+          // Adjust period count if remaining is less than usual (Cap at currentRemaining)
+          const periodsToTeach = Math.min(item.periodCount, currentRemaining);
           
           const newItem = {
             ...item,
@@ -165,12 +242,16 @@ const ScheduleManager: React.FC = () => {
           if (!conflict.hasConflict) {
             addSchedule(newItem);
             addedCount++;
+            addedPeriodsMap[key] = previouslyAdded + periodsToTeach;
           }
         }
-
-        if (progress.remaining <= 4 && progress.remaining > 0) {
-          warnings.push(`Môn ${subject.name} sắp kết thúc (còn ${progress.remaining} tiết)`);
-        }
+      }
+      
+      // Check warning condition based on final remaining after potential add
+      const finalRemaining = progress.remaining - (addedPeriodsMap[key] || 0);
+      if (finalRemaining <= 4 && finalRemaining > 0) {
+         const msg = `Môn ${subject.name} sắp kết thúc (còn ${finalRemaining} tiết)`;
+         if (!warnings.includes(msg)) warnings.push(msg);
       }
     });
 
@@ -209,15 +290,16 @@ const ScheduleManager: React.FC = () => {
                 if (item.startPeriod === p) {
                     const subj = subjects.find(s => s.id === item.subjectId);
                     const tea = teachers.find(t => t.id === item.teacherId);
-                    const progress = calculateSubjectProgress(item.subjectId, item.classId, subj?.totalPeriods || 0, schedules);
-                    
+                    const seqInfo = getSessionSequenceInfo(item, schedules, subj?.totalPeriods);
+                    const displayCumulative = Math.min(seqInfo.cumulative, subj?.totalPeriods || seqInfo.cumulative);
+
                     let cellText = `${subj?.name}`;
                     if (item.status === ScheduleStatus.OFF) cellText += ` (NGHỈ)`;
                     else if (item.type === 'exam') cellText = `THI: ${subj?.name}`;
                     
                     cellText += `\nGV: ${tea?.name}`;
                     cellText += `\nPH: ${item.roomId}`;
-                    cellText += `\nTiết: ${progress.learned}/${subj?.totalPeriods}`;
+                    cellText += `\nTiết: ${displayCumulative}/${subj?.totalPeriods}`;
                     
                     rowData.push(cellText);
                 } else {
@@ -356,37 +438,59 @@ const ScheduleManager: React.FC = () => {
                      if (coveringItem) return null; // Skip cell if covered by previous row
 
                      if (!item) {
-                       return <td key={day.toString()} className="border p-1" />;
+                       return (
+                         <td 
+                            key={day.toString()} 
+                            className="border p-1 hover:bg-gray-100 transition-colors"
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, day, period)}
+                         />
+                       );
                      }
 
                      const subject = subjects.find(s => s.id === item.subjectId);
                      const teacher = teachers.find(t => t.id === item.teacherId);
-                     const progress = calculateSubjectProgress(item.subjectId, item.classId, subject?.totalPeriods || 0, schedules);
+                     const seqInfo = getSessionSequenceInfo(item, schedules, subject?.totalPeriods);
+                     const displayCumulative = Math.min(seqInfo.cumulative, subject?.totalPeriods || seqInfo.cumulative);
                      
+                     // Calculate Display Status
+                     const computedStatus = determineStatus(item.date, item.startPeriod, item.status);
+
                      let bgColor = 'bg-blue-50 border-l-4 border-blue-500';
+                     if (item.type === 'class') {
+                        if (seqInfo.isFirst) bgColor = 'bg-orange-100 border-l-4 border-orange-500';
+                        else if (seqInfo.isLast) bgColor = 'bg-red-100 border-l-4 border-red-500';
+                     }
                      if (item.type === 'exam') bgColor = 'bg-yellow-50 border-l-4 border-yellow-500';
-                     if (item.status === ScheduleStatus.OFF) bgColor = 'bg-gray-200 border-l-4 border-gray-500 opacity-70';
-                     if (item.status === ScheduleStatus.MAKEUP) bgColor = 'bg-purple-50 border-l-4 border-purple-500';
+                     if (computedStatus === ScheduleStatus.OFF) bgColor = 'bg-gray-200 border-l-4 border-gray-500 opacity-70';
+                     if (computedStatus === ScheduleStatus.MAKEUP) bgColor = 'bg-purple-50 border-l-4 border-purple-500';
 
                      return (
-                       <td key={day.toString()} rowSpan={item.periodCount} className="border p-1 align-top relative group cursor-pointer hover:brightness-95 transition" onClick={() => { setEditItem(item); setShowAddModal(true); }}>
-                         <div className={`h-full w-full p-2 rounded text-xs ${bgColor} flex flex-col justify-between`}>
+                       <td 
+                         key={day.toString()} 
+                         rowSpan={item.periodCount} 
+                         className="border p-1 align-top relative group cursor-pointer hover:brightness-95 transition" 
+                         onClick={() => { setEditItem(item); setShowAddModal(true); }}
+                         draggable="true"
+                         onDragStart={(e) => handleDragStart(e, item)}
+                       >
+                         <div className={`h-full w-full p-2 rounded text-xs ${bgColor} flex flex-col justify-between ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}>
                            <div>
                              <div className="font-bold text-gray-800 text-sm mb-1">{subject?.name}</div>
                              <div className="text-gray-600 mb-0.5"><span className="font-semibold">GV:</span> {teacher?.name}</div>
                              <div className="text-gray-600 mb-0.5"><span className="font-semibold">Phòng:</span> {item.roomId}</div>
                              {item.type === 'class' && (
-                                <div className="text-gray-500 italic">Tiến độ: {progress.learned}/{progress.total}</div>
+                                <div className="text-gray-500 italic">Tiến độ: {displayCumulative}/{subject?.totalPeriods}</div>
                              )}
                            </div>
                            <div className="mt-2 pt-2 border-t border-black/10 flex justify-between items-center">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase text-white 
-                                ${item.status === ScheduleStatus.COMPLETED ? 'bg-green-500' : 
-                                  item.status === ScheduleStatus.PENDING ? 'bg-blue-400' :
-                                  item.status === ScheduleStatus.ONGOING ? 'bg-orange-500' :
-                                  item.status === ScheduleStatus.OFF ? 'bg-gray-500' : 'bg-purple-500'
+                                ${computedStatus === ScheduleStatus.COMPLETED ? 'bg-green-500' : 
+                                  computedStatus === ScheduleStatus.PENDING ? 'bg-blue-400' :
+                                  computedStatus === ScheduleStatus.ONGOING ? 'bg-orange-500' :
+                                  computedStatus === ScheduleStatus.OFF ? 'bg-gray-500' : 'bg-purple-500'
                                 }`}>
-                                {item.status}
+                                {computedStatus}
                               </span>
                            </div>
                          </div>
@@ -461,7 +565,32 @@ const ScheduleManager: React.FC = () => {
                   </div>
                    <div>
                     <label className="block text-sm font-medium mb-1">Số tiết</label>
-                    <input type="number" min="1" max="5" value={editItem ? editItem.periodCount : formPeriodCount} onChange={(e) => editItem ? setEditItem({...editItem, periodCount: Number(e.target.value)}) : setFormPeriodCount(Number(e.target.value))} className="w-full border rounded p-2" />
+                    <input type="number" min="1" max="5" value={editItem ? editItem.periodCount : formPeriodCount} onChange={(e) => {
+                      let val = Number(e.target.value);
+                      const subjId = editItem ? editItem.subjectId : formSubjectId;
+                      const type = editItem ? editItem.type : formType;
+
+                      if (type === 'class' && subjId) {
+                           const subject = subjects.find(s => s.id === subjId);
+                           if (subject) {
+                               const used = schedules.filter(s =>
+                                  s.subjectId === subjId &&
+                                  s.classId === selectedClassId &&
+                                  s.status !== ScheduleStatus.OFF &&
+                                  (editItem ? s.id !== editItem.id : true)
+                               ).reduce((acc, curr) => acc + curr.periodCount, 0);
+
+                               const remaining = Math.max(0, subject.totalPeriods - used);
+                               if (val > remaining) {
+                                   alert(`Môn học chỉ còn ${remaining} tiết`);
+                                   val = remaining;
+                               }
+                           }
+                      }
+
+                      if (editItem) setEditItem({...editItem, periodCount: val});
+                      else setFormPeriodCount(val);
+                    }} className="w-full border rounded p-2" />
                   </div>
                    <div>
                     <label className="block text-sm font-medium mb-1">Phòng học</label>

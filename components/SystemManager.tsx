@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 
 const SystemManager: React.FC = () => {
   const { 
-    teachers, subjects, majors, classes, schedules, students, // Access all data for backup
+    teachers, subjects, majors, classes, schedules, students, documents, // Access all data for backup
     loadData, resetData 
   } = useApp();
   
@@ -14,7 +14,7 @@ const SystemManager: React.FC = () => {
 
   // Backup Handler
   const handleBackup = () => {
-      const data: AppState = { teachers, subjects, majors, classes, schedules, students };
+      const data: AppState = { teachers, subjects, majors, classes, schedules, students, documents };
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
-import { BookOpen, Users, Calendar, Clock, AlertTriangle } from 'lucide-react';
+import { BookOpen, Users, Calendar, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { format, isSameDay } from 'date-fns';
 import vi from 'date-fns/locale/vi';
-import { parseLocal } from '../utils';
+import { parseLocal, determineStatus } from '../utils';
+import { ScheduleStatus } from '../types';
 
 const Dashboard: React.FC = () => {
   const { subjects, teachers, schedules, classes } = useApp();
@@ -29,6 +30,63 @@ const Dashboard: React.FC = () => {
     .filter(s => s.type === 'exam' && parseLocal(s.date) >= startOfToday)
     .sort((a, b) => parseLocal(a.date).getTime() - parseLocal(b.date).getTime())
     .slice(0, 5);
+
+  // Logic for completed subjects (Read-only, matches Statistics logic)
+  // We read 'paid_completed_subjects' from localStorage to exclude deleted items
+  const [paidItems] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('paid_completed_subjects');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const completedSubjects = useMemo(() => {
+    const results: any[] = [];
+    
+    classes.forEach(cls => {
+        const classSubjects = subjects.filter(s => s.majorId === cls.majorId);
+        
+        classSubjects.forEach(sub => {
+            // Unique key to match with Statistics (deleted/hidden items)
+            const uniqueKey = `${sub.id}-${cls.id}`;
+
+            // Skip if hidden/deleted
+            if (paidItems.includes(uniqueKey)) return;
+
+             const relevantSchedules = schedules.filter(sch => 
+                sch.subjectId === sub.id && 
+                sch.classId === cls.id && 
+                sch.status !== ScheduleStatus.OFF
+            );
+            
+            const learned = relevantSchedules.reduce((acc, curr) => acc + curr.periodCount, 0);
+            
+            // Condition: Learned >= Total AND started (learned > 0)
+            if (learned >= sub.totalPeriods && learned > 0) {
+                 const teacherIds = Array.from(new Set(relevantSchedules.map(s => s.teacherId)));
+                 const teacherNames = teacherIds.map(tid => teachers.find(t => t.id === tid)?.name).join(', ');
+
+                 // Calculate End Date: Sort by date and take the last one
+                 relevantSchedules.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                 const lastSchedule = relevantSchedules[relevantSchedules.length - 1];
+                 const endDate = lastSchedule ? format(parseLocal(lastSchedule.date), 'dd/MM/yyyy') : 'N/A';
+
+                 results.push({
+                     uniqueKey: uniqueKey,
+                     subjectName: sub.name,
+                     className: cls.name,
+                     teacherName: teacherNames || "Chưa xác định",
+                     totalPeriods: sub.totalPeriods,
+                     endDate: endDate
+                 });
+            }
+        });
+    });
+    
+    return results;
+  }, [subjects, schedules, classes, teachers, paidItems]);
 
   return (
     <div className="space-y-6">
@@ -89,6 +147,7 @@ const Dashboard: React.FC = () => {
                 const subj = subjects.find(sub => sub.id === s.subjectId);
                 const tea = teachers.find(t => t.id === s.teacherId);
                 const cls = classes.find(c => c.id === s.classId);
+                const computedStatus = determineStatus(s.date, s.startPeriod, s.status);
                 
                 return (
                   <div key={s.id} className="p-3 rounded-lg border-l-4 border-blue-500 bg-blue-50">
@@ -103,7 +162,7 @@ const Dashboard: React.FC = () => {
                           Tiết {s.startPeriod} - {s.startPeriod + s.periodCount - 1}
                         </span>
                         <div className="mt-1 text-xs text-gray-500 font-medium">
-                           {s.status}
+                           {computedStatus}
                         </div>
                       </div>
                     </div>
@@ -145,6 +204,45 @@ const Dashboard: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* NEW: Completed Subjects */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <h2 className="text-lg font-semibold mb-4 flex items-center">
+          <CheckCircle className="mr-2 text-green-500" size={20} />
+          Môn học đã kết thúc
+        </h2>
+        
+        {completedSubjects.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left bg-white">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                   <th className="p-3 text-sm font-semibold text-gray-600">Môn học</th>
+                   <th className="p-3 text-sm font-semibold text-gray-600">Lớp</th>
+                   <th className="p-3 text-sm font-semibold text-gray-600">Giáo viên</th>
+                   <th className="p-3 text-sm font-semibold text-gray-600">Ngày kết thúc</th>
+                   <th className="p-3 text-sm font-semibold text-gray-600 text-right">Tổng tiết</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {completedSubjects.map((item: any) => (
+                  <tr key={item.uniqueKey} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-3 font-medium text-gray-800">{item.subjectName}</td>
+                    <td className="p-3 text-gray-600 text-sm">{item.className}</td>
+                    <td className="p-3 text-gray-600 text-sm">{item.teacherName}</td>
+                    <td className="p-3 text-gray-600 text-sm">{item.endDate}</td>
+                    <td className="p-3 text-gray-800 font-medium text-right">{item.totalPeriods}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-gray-500 italic py-6 text-center bg-gray-50 rounded border border-dashed border-gray-200">
+             Chưa có môn học nào hoàn thành.
+          </div>
+        )}
       </div>
     </div>
   );

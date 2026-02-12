@@ -1,8 +1,9 @@
+
 export type Period = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type Session = 'Sáng' | 'Chiều' | 'Tối';
 
 export enum ScheduleStatus {
-  PENDING = 'Sẽ học',
+  PENDING = 'Sắp học',
   ONGOING = 'Đang học',
   COMPLETED = 'Đã học',
   MAKEUP = 'Tiết bổ sung',
@@ -73,6 +74,16 @@ export interface Major {
   name: string;
 }
 
+// New Document Type
+export interface DocumentItem {
+  id: string;
+  name: string;
+  type: 'word' | 'excel' | 'pdf' | 'other';
+  size: number;
+  uploadDate: string; // ISO String
+  content: string; // Base64 Data URL
+}
+
 // Stats types
 export interface TeacherStat {
   teacherId: string;
@@ -90,4 +101,5 @@ export interface AppState {
   students: Student[];
   schedules: ScheduleItem[];
   majors: Major[];
+  documents: DocumentItem[];
 }

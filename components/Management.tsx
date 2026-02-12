@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { Teacher, Subject, ClassEntity, ScheduleStatus } from '../types';
-import { Plus, Trash2, Edit2, Download, Save, X, Filter, Search, Phone, Upload, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import vi from 'date-fns/locale/vi';
 import { parseLocal } from '../utils';
@@ -228,72 +228,6 @@ const Management: React.FC = () => {
     setEditingClassId(null);
   }
 
-  const downloadInvitation = (teacher: Teacher) => {
-    const subject = subjects.find(s => s.id === teacher.mainSubject);
-    const subjectName = subject?.name || 'Theo phân công';
-    const teacherSchedules = schedules
-      .filter(s => s.teacherId === teacher.id && s.subjectId === teacher.mainSubject && s.status !== ScheduleStatus.OFF)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    let scheduleInfo = `<p><em>(Hiện chưa có lịch giảng dạy cụ thể trên hệ thống)</em></p>`;
-
-    if (teacherSchedules.length > 0) {
-      const firstSession = teacherSchedules[0];
-      const date = parseLocal(firstSession.date);
-      const dayOfWeek = format(date, 'EEEE', { locale: vi });
-      const dateStr = format(date, 'dd/MM/yyyy');
-      const className = classes.find(c => c.id === firstSession.classId)?.name || '...';
-      const periods = Array.from({length: firstSession.periodCount}, (_, i) => firstSession.startPeriod + i).join(', ');
-
-      scheduleInfo = `
-        <div style="margin-top: 15px; border: 1px solid #ccc; padding: 10px;">
-          <p><strong>THÔNG TIN LỊCH GIẢNG DẠY (Buổi đầu tiên):</strong></p>
-          <ul style="list-style-type: none; padding-left: 0;">
-            <li><strong>Thời gian:</strong> ${dayOfWeek}, ngày ${dateStr} (${firstSession.session})</li>
-            <li><strong>Tiết học:</strong> ${periods}</li>
-            <li><strong>Phòng học:</strong> ${firstSession.roomId}</li>
-            <li><strong>Lớp:</strong> ${className}</li>
-          </ul>
-        </div>
-      `;
-    }
-
-    const htmlContent = `
-    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-    <head>
-      <meta charset='utf-8'>
-      <title>Thư mời giảng dạy</title>
-      <style>
-        body { font-family: 'Times New Roman', serif; font-size: 14pt; line-height: 1.5; }
-        .header { text-align: center; font-weight: bold; text-transform: uppercase; margin-bottom: 30px; }
-        .content { margin-bottom: 20px; }
-      </style>
-    </head>
-    <body>
-      <div class="header"><h1>THƯ MỜI GIẢNG DẠY</h1></div>
-      <div class="content">
-        <p>Kính gửi: Thầy/Cô <strong>${teacher.name}</strong></p>
-        <p>Trân trọng kính mời quý thầy/cô tham gia giảng dạy tại cơ sở đào tạo của chúng tôi.</p>
-        <p><strong>Môn học:</strong> ${subjectName}</p>
-        <p><strong>Thù lao:</strong> ${teacher.ratePerPeriod.toLocaleString()} VNĐ / tiết</p>
-        ${scheduleInfo}
-      </div>
-      <br><br>
-      <p style="text-align: right;"><strong>Đại diện Ban Đào Tạo</strong></p>
-    </body>
-    </html>
-    `;
-    
-    const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Thu_Moi_${teacher.name.replace(/\s/g, '_')}.doc`; 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
     <div className="space-y-6">
        <h1 className="text-2xl font-bold text-gray-800">Quản lý giảng dạy</h1>
@@ -393,7 +327,6 @@ const Management: React.FC = () => {
                         <td className="p-3 flex space-x-2">
                            <button onClick={() => handleEditTeacher(t)} className="text-orange-500" title="Sửa"><Edit2 size={18} /></button>
                            <button onClick={() => deleteTeacher(t.id)} className="text-red-500" title="Xóa"><Trash2 size={18} /></button>
-                           <button onClick={() => downloadInvitation(t)} className="text-blue-500" title="Xuất thư mời Word"><Download size={18} /></button>
                         </td>
                       </tr>
                     ))}

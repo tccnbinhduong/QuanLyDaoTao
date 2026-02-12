@@ -1,57 +1,65 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { ScheduleStatus } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
-import { Download, AlertCircle, Filter } from 'lucide-react';
+import { Download, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { parseLocal } from '../utils';
 
 const Statistics: React.FC = () => {
   const { teachers, schedules, subjects, classes } = useApp();
-  const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
 
   // 1. Missed classes needing makeup
   const missedClasses = schedules.filter(s => s.status === ScheduleStatus.OFF);
 
   // 2. Teacher Stats
   const teacherStats = teachers.map(t => {
-    const taught = schedules.filter(s => s.teacherId === t.id && (s.status === ScheduleStatus.COMPLETED || s.status === ScheduleStatus.ONGOING || s.status === ScheduleStatus.PENDING)); // Assuming pending also counts for planned hours
+    const taught = schedules.filter(s => s.teacherId === t.id && (s.status === ScheduleStatus.COMPLETED || s.status === ScheduleStatus.ONGOING || s.status === ScheduleStatus.PENDING)); 
     const totalPeriods = taught.reduce((acc, curr) => acc + curr.periodCount, 0);
     return {
       name: t.name,
       periods: totalPeriods,
       income: totalPeriods * t.ratePerPeriod
     };
-  });
+  }).filter(t => t.periods > 0); 
 
-  // 3. Subject Progress per Class
+  // 3. Subject Progress (All active subjects across all classes)
   const subjectStats = useMemo(() => {
-    const currentClass = classes.find(c => c.id === selectedClassId);
-    if (!currentClass) return [];
-
-    // Filter subjects that belong to the class's major
-    // Ideally we should have a curriculum table, but here we use majorId matching
-    const classSubjects = subjects.filter(s => s.majorId === currentClass.majorId);
-
-    return classSubjects.map(s => {
-        // Calculate progress specifically for this class
-        const relevantSchedules = schedules.filter(sch => 
-            sch.subjectId === s.id && 
-            sch.classId === selectedClassId && 
-            sch.status !== ScheduleStatus.OFF
-        );
+    const results: any[] = [];
+    
+    classes.forEach(cls => {
+        // Subjects for this class based on major
+        const classSubjects = subjects.filter(s => s.majorId === cls.majorId);
         
-        const learned = relevantSchedules.reduce((acc, curr) => acc + curr.periodCount, 0);
-        
-        return {
-            name: s.name,
-            total: s.totalPeriods, 
-            learned: learned,
-            remaining: Math.max(0, s.totalPeriods - learned)
-        };
+        classSubjects.forEach(sub => {
+             const relevantSchedules = schedules.filter(sch => 
+                sch.subjectId === sub.id && 
+                sch.classId === cls.id && 
+                sch.status !== ScheduleStatus.OFF
+            );
+            
+            const learned = relevantSchedules.reduce((acc, curr) => acc + curr.periodCount, 0);
+            const remaining = Math.max(0, sub.totalPeriods - learned);
+            
+            // Filter: Only show subjects that are "currently learning"
+            // Condition: Learned > 0 (started) AND Remaining > 0 (not finished)
+            if (learned > 0 && remaining > 0) {
+                 results.push({
+                     name: sub.name,
+                     className: cls.name,
+                     // Combine for unique label
+                     fullName: `${sub.name} (${cls.name})`,
+                     total: sub.totalPeriods,
+                     learned: learned,
+                     remaining: remaining
+                 });
+            }
+        });
     });
-  }, [subjects, schedules, classes, selectedClassId]);
+    
+    return results;
+  }, [subjects, schedules, classes]);
 
   const exportTeacherReport = () => {
      const data = schedules
@@ -69,6 +77,9 @@ const Statistics: React.FC = () => {
     XLSX.utils.book_append_sheet(wb, ws, "ThongKeGiangDay");
     XLSX.writeFile(wb, "Thong_Ke_Giang_Vien.xlsx");
   };
+
+  // Dynamic height calculation
+  const progressChartHeight = Math.max(300, subjectStats.length * 60);
 
   return (
     <div className="space-y-6">
@@ -93,61 +104,57 @@ const Statistics: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Teacher Chart */}
-        <div className="bg-white p-6 rounded-xl shadow border">
-           <div className="flex justify-between items-center mb-4">
+        <div className="bg-white p-6 rounded-xl shadow border h-[500px] flex flex-col">
+           <div className="flex justify-between items-center mb-4 flex-shrink-0">
               <h3 className="font-bold text-gray-700">Số tiết dạy theo Giáo viên</h3>
               <button onClick={exportTeacherReport} className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded flex items-center hover:bg-green-200">
                 <Download size={14} className="mr-1"/> Xuất Excel
               </button>
            </div>
-           <div className="h-64">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={teacherStats}>
-                 <CartesianGrid strokeDasharray="3 3" />
-                 <XAxis dataKey="name" tick={{fontSize: 10}} interval={0} />
-                 <YAxis />
-                 <Tooltip />
-                 <Bar dataKey="periods" fill="#3B82F6" name="Số tiết" />
-               </BarChart>
-             </ResponsiveContainer>
-           </div>
+           {teacherStats.length > 0 ? (
+             <div className="flex-1 min-h-0">
+               <ResponsiveContainer width="100%" height="100%">
+                 <BarChart data={teacherStats}>
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                   <XAxis dataKey="name" tick={{fontSize: 11}} interval={0} angle={-15} textAnchor="end" height={60} />
+                   <YAxis />
+                   <Tooltip />
+                   <Bar dataKey="periods" fill="#3B82F6" name="Số tiết" barSize={40} />
+                 </BarChart>
+               </ResponsiveContainer>
+             </div>
+           ) : (
+             <div className="flex-1 flex items-center justify-center text-gray-400 italic">
+               Chưa có dữ liệu giáo viên đang dạy.
+             </div>
+           )}
         </div>
 
-        {/* Progress Chart */}
-         <div className="bg-white p-6 rounded-xl shadow border">
-           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
-               <h3 className="font-bold text-gray-700">Tiến độ giảng dạy</h3>
-               <div className="flex items-center gap-2">
-                   <Filter size={16} className="text-gray-500"/>
-                   <select 
-                       className="border rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
-                       value={selectedClassId}
-                       onChange={(e) => setSelectedClassId(e.target.value)}
-                   >
-                       {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                   </select>
-               </div>
-           </div>
+        {/* Progress Chart (Scrollable) */}
+         <div className="bg-white p-6 rounded-xl shadow border h-[500px] flex flex-col">
+           <h3 className="font-bold text-gray-700 mb-4 flex-shrink-0">Tiến độ (Tất cả các môn đang học)</h3>
            
-           {subjectStats.length > 0 ? (
-               <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={subjectStats} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" />
-                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10}} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="learned" stackId="a" fill="#10B981" name="Đã học" />
-                        <Bar dataKey="remaining" stackId="a" fill="#E5E7EB" name="Chưa học" />
-                    </BarChart>
-                  </ResponsiveContainer>
-               </div>
-           ) : (
-               <div className="h-64 flex items-center justify-center text-gray-400 italic">
-                   Không có môn học nào cho lớp này (Ngành học chưa có môn).
-               </div>
-           )}
+           <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+               {subjectStats.length > 0 ? (
+                  <div style={{ height: progressChartHeight }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={subjectStats} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" />
+                            <YAxis dataKey="fullName" type="category" width={180} tick={{fontSize: 11}} />
+                            <Tooltip cursor={{fill: '#f3f4f6'}} />
+                            <Legend verticalAlign="top" height={36} />
+                            <Bar dataKey="learned" stackId="a" fill="#10B981" name="Đã học" barSize={24} />
+                            <Bar dataKey="remaining" stackId="a" fill="#E5E7EB" name="Chưa học" barSize={24} radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+               ) : (
+                   <div className="h-full flex items-center justify-center text-gray-400 italic px-6 text-center">
+                       Không có môn nào đang diễn ra (Tất cả đã xong hoặc chưa bắt đầu).
+                   </div>
+               )}
+           </div>
         </div>
       </div>
     </div>

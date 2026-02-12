@@ -6,10 +6,13 @@ import Statistics from './components/Statistics';
 import Management from './components/Management';
 import StudentManager from './components/StudentManager';
 import SystemManager from './components/SystemManager';
-import { LayoutDashboard, CalendarDays, PieChart, GraduationCap, Menu, X, Users, Settings } from 'lucide-react';
+import TeachingProgress from './components/TeachingProgress';
+import Payment from './components/Payment';
+import DocumentManager from './components/DocumentManager';
+import { LayoutDashboard, CalendarDays, PieChart, GraduationCap, Menu, X, Users, Settings, TrendingUp, CreditCard, FolderOpen } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeView, setActiveView] = useState<'dashboard' | 'schedule' | 'stats' | 'manage' | 'students' | 'system'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'schedule' | 'stats' | 'progress' | 'manage' | 'students' | 'system' | 'payment' | 'documents'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const NavItem = ({ view, icon: Icon, label }: { view: typeof activeView, icon: any, label: string }) => (
@@ -37,9 +40,12 @@ const App: React.FC = () => {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             <NavItem view="dashboard" icon={LayoutDashboard} label="Tổng quan" />
             <NavItem view="schedule" icon={CalendarDays} label="Quản lý lịch & Thi" />
+            <NavItem view="payment" icon={CreditCard} label="Thanh toán giảng dạy" />
+            <NavItem view="progress" icon={TrendingUp} label="Tiến độ giảng dạy" />
             <NavItem view="stats" icon={PieChart} label="Thống kê" />
             <NavItem view="manage" icon={GraduationCap} label="Quản lý giảng dạy" />
             <NavItem view="students" icon={Users} label="Quản lý HSSV" />
+            <NavItem view="documents" icon={FolderOpen} label="Hồ sơ" />
             <NavItem view="system" icon={Settings} label="Hệ thống" />
           </nav>
           <div className="p-4 border-t text-xs text-center text-gray-400">
@@ -61,6 +67,9 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto">
               {activeView === 'dashboard' && <Dashboard />}
               {activeView === 'schedule' && <ScheduleManager />}
+              {activeView === 'progress' && <TeachingProgress />}
+              {activeView === 'payment' && <Payment />}
+              {activeView === 'documents' && <DocumentManager />}
               {activeView === 'stats' && <Statistics />}
               {activeView === 'manage' && <Management />}
               {activeView === 'students' && <StudentManager />}
