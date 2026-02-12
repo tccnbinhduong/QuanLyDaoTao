@@ -1,13 +1,44 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { ScheduleStatus } from '../types';
-import { Filter, CheckCircle, Clock, Circle, BookOpen, User, Calendar } from 'lucide-react';
+import { Filter, CheckCircle, Clock, BookOpen, User, Calendar } from 'lucide-react';
 import { parseLocal } from '../utils';
 import { isSameDay, startOfDay } from 'date-fns';
 
 const TeachingProgress: React.FC = () => {
   const { classes, subjects, schedules } = useApp();
   const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
+
+  // NEW: State for manual completion (Persisted in localStorage)
+  const [manualCompleted, setManualCompleted] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('manual_completed_subjects');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleManualComplete = (e: React.MouseEvent, subjectId: string) => {
+    e.stopPropagation(); // Prevent bubbling
+    e.preventDefault(); // Prevent default behavior
+    
+    if (!selectedClassId) return;
+    
+    const key = `${subjectId}-${selectedClassId}`;
+    let newList;
+    
+    if (manualCompleted.includes(key)) {
+        // Toggle OFF
+        newList = manualCompleted.filter(k => k !== key);
+    } else {
+        // Toggle ON (Removed confirm dialog for better UX)
+        newList = [...manualCompleted, key];
+    }
+    
+    setManualCompleted(newList);
+    localStorage.setItem('manual_completed_subjects', JSON.stringify(newList));
+  };
 
   const currentClass = classes.find(c => c.id === selectedClassId);
   
@@ -43,21 +74,22 @@ const TeachingProgress: React.FC = () => {
       const hasScheduleToday = relevantSchedules.some(s => isSameDay(parseLocal(s.date), today));
       const hasSchedulePast = relevantSchedules.some(s => parseLocal(s.date) < today);
       
+      // NEW: Check manual completion
+      const uniqueKey = `${sub.id}-${selectedClassId}`;
+      const isManuallyCompleted = manualCompleted.includes(uniqueKey);
+      const isAutoCompleted = realizedPeriods >= totalPeriods;
+
       let status: 'upcoming' | 'in-progress' | 'completed' = 'upcoming';
 
-      // Priority 1: If completed all periods (based on realized progress)
-      if (realizedPeriods >= totalPeriods) {
+      // Priority 1: Completed (Auto or Manual)
+      if (isAutoCompleted || isManuallyCompleted) {
         status = 'completed';
       } 
-      // Priority 2: If there is a class today
-      else if (hasScheduleToday) {
+      // Priority 2: In Progress
+      else if (hasScheduleToday || hasSchedulePast) {
         status = 'in-progress';
       } 
-      // Priority 3: If started (has past classes) but not finished
-      else if (hasSchedulePast) {
-        status = 'in-progress';
-      } 
-      // Priority 4: No past classes, no today classes (Future only or No schedule)
+      // Priority 3: Upcoming
       else {
         status = 'upcoming';
       }
@@ -65,15 +97,17 @@ const TeachingProgress: React.FC = () => {
       return {
         ...sub,
         learnedPeriods: realizedPeriods,
-        percentage,
-        status
+        percentage, // Keep actual percentage even if manually completed for accuracy
+        status,
+        isAutoCompleted,
+        isManuallyCompleted
       };
     }).sort((a, b) => {
         // Sort order: In Progress -> Upcoming -> Completed
         const order = { 'in-progress': 1, 'upcoming': 2, 'completed': 3 };
         return order[a.status] - order[b.status];
     });
-  }, [subjects, schedules, classes, selectedClassId, currentClass, today]);
+  }, [subjects, schedules, classes, selectedClassId, currentClass, today, manualCompleted]);
 
   // Summary Counts
   const summary = {
@@ -185,14 +219,30 @@ const TeachingProgress: React.FC = () => {
                         </div>
                      </div>
 
-                     {/* Status Badge */}
-                     <div className="w-full md:w-32 flex justify-end md:justify-center">
+                     {/* Status Badge & Manual Toggle */}
+                     <div className="w-full md:w-48 flex justify-end md:justify-center items-center gap-3">
                          <span className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap flex items-center gap-1 ${getStatusColor(subject.status)}`}>
                             {subject.status === 'completed' && <CheckCircle size={12} />}
                             {subject.status === 'in-progress' && <Clock size={12} />}
                             {subject.status === 'upcoming' && <Calendar size={12} />}
                             {getStatusLabel(subject.status)}
                          </span>
+                         
+                         {/* Manual Toggle Button */}
+                         {!subject.isAutoCompleted && (
+                            <button
+                                type="button"
+                                onClick={(e) => toggleManualComplete(e, subject.id)}
+                                className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors shadow-sm whitespace-nowrap cursor-pointer z-10 relative ${
+                                    subject.isManuallyCompleted 
+                                    ? "bg-white text-red-500 border border-red-200 hover:bg-red-50" 
+                                    : "bg-blue-600 text-white border border-blue-600 hover:bg-blue-700"
+                                }`}
+                                title={subject.isManuallyCompleted ? "Hủy xác nhận hoàn thành" : "Xác nhận môn học đã hoàn thành"}
+                            >
+                                {subject.isManuallyCompleted ? "Hủy" : "Đã học"}
+                            </button>
+                         )}
                      </div>
                  </div>
              ))}
