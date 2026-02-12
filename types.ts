@@ -25,6 +25,7 @@ export interface Subject {
   name: string;
   majorId: string; // Industry/Major
   totalPeriods: number;
+  isShared?: boolean; // NEW: Flag for shared subjects (Combined classes)
   // Responsible teachers
   teacher1?: string;
   phone1?: string;

@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal, determineStatus, getSessionSequenceInfo } from '../utils';
 import { ScheduleItem, ScheduleStatus } from '../types';
 import { format, addDays, isSameDay, getWeek } from 'date-fns';
 import vi from 'date-fns/locale/vi';
-import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, Edit2, FileSpreadsheet, ListFilter, X, FileText, Download } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, Edit2, FileSpreadsheet, ListFilter, X, Copy, Clipboard } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const DAYS_OF_WEEK = [
@@ -28,6 +28,15 @@ const ScheduleManager: React.FC = () => {
   
   // State for Drag and Drop
   const [draggedItem, setDraggedItem] = useState<ScheduleItem | null>(null);
+
+  // State for Copy/Paste (Context Menu)
+  const [copiedItem, setCopiedItem] = useState<ScheduleItem | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    show: boolean;
+    x: number;
+    y: number;
+    target?: { date: Date; period: number; item?: ScheduleItem };
+  }>({ show: false, x: 0, y: 0 });
 
   // Form State
   const [formTeacherId, setFormTeacherId] = useState('');
@@ -65,6 +74,13 @@ const ScheduleManager: React.FC = () => {
     return subjects.filter(s => s.majorId === currentClass.majorId);
   }, [subjects, classes, selectedClassId]);
 
+  // Close context menu on click outside
+  useEffect(() => {
+    const handleClick = () => setContextMenu({ ...contextMenu, show: false });
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [contextMenu]);
+
   // Reset form subject when available subjects change (i.e. class changes) and current selection is invalid
   useEffect(() => {
     if (formSubjectId && !availableSubjects.some(s => s.id === formSubjectId)) {
@@ -91,7 +107,6 @@ const ScheduleManager: React.FC = () => {
   const handleDragStart = (e: React.DragEvent, item: ScheduleItem) => {
     setDraggedItem(item);
     e.dataTransfer.effectAllowed = "copy";
-    // Optional: Set a custom drag image or data if needed
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -111,7 +126,6 @@ const ScheduleManager: React.FC = () => {
         return;
     }
 
-    // Create new item based on dragged item
     const newItem = {
         type: draggedItem.type,
         teacherId: draggedItem.teacherId,
@@ -124,14 +138,82 @@ const ScheduleManager: React.FC = () => {
         periodCount: draggedItem.periodCount,
     };
 
-    // Check conflicts
-    const conflict = checkConflict(newItem, schedules); 
+    const conflict = checkConflict(newItem, schedules, subjects); 
     if (conflict.hasConflict) {
         alert(`Không thể sao chép: ${conflict.message}`);
     } else {
         addSchedule(newItem);
     }
     setDraggedItem(null);
+  };
+
+  // Context Menu Handlers
+  const handleContextMenu = (e: React.MouseEvent, date: Date, period: number, item?: ScheduleItem) => {
+    e.preventDefault();
+    setContextMenu({
+      show: true,
+      x: e.pageX,
+      y: e.pageY,
+      target: { date, period, item }
+    });
+  };
+
+  const handleCopy = () => {
+    if (contextMenu.target?.item) {
+      setCopiedItem(contextMenu.target.item);
+    }
+    setContextMenu({ ...contextMenu, show: false });
+  };
+
+  const handlePaste = () => {
+    if (!copiedItem) return;
+
+    // 1. Get Source Subject Info
+    const sourceSubject = subjects.find(s => s.id === copiedItem.subjectId);
+    if (!sourceSubject) return;
+
+    // 2. Find Equivalent Subject in Target Class (Match by Name and Total Periods)
+    const targetSubject = availableSubjects.find(s => 
+        s.name === sourceSubject.name && 
+        s.totalPeriods === sourceSubject.totalPeriods
+    );
+
+    if (!targetSubject) {
+        alert(`Không tìm thấy môn "${sourceSubject.name}" (${sourceSubject.totalPeriods} tiết) trong chương trình học của lớp này.`);
+        setContextMenu({ ...contextMenu, show: false });
+        return;
+    }
+
+    // 3. Create new item using ORIGINAL time (Date & Period), NOT click location
+    const newItem = {
+        type: copiedItem.type,
+        teacherId: copiedItem.teacherId,
+        subjectId: targetSubject.id, // Use the new ID found for this class
+        classId: selectedClassId,    // Paste into currently selected class
+        roomId: copiedItem.roomId,
+        date: copiedItem.date,       // KEEP ORIGINAL DATE
+        session: copiedItem.session,
+        startPeriod: copiedItem.startPeriod, // KEEP ORIGINAL PERIOD
+        periodCount: copiedItem.periodCount,
+        status: ScheduleStatus.PENDING // Reset status
+    };
+
+    // Check if we are pasting into the exact same class/slot (duplicate)
+    if (newItem.classId === copiedItem.classId && newItem.date === copiedItem.date && newItem.startPeriod === copiedItem.startPeriod) {
+        alert("Bạn đang dán đè lên chính buổi học gốc.");
+        setContextMenu({ ...contextMenu, show: false });
+        return;
+    }
+
+    const conflict = checkConflict(newItem, schedules, subjects);
+    if (conflict.hasConflict) {
+         alert(`Không thể dán (Trùng lịch): ${conflict.message}`);
+    } else {
+         addSchedule(newItem);
+         // Optional: Notify success
+         // alert(`Đã sao chép môn ${targetSubject.name} sang lớp hiện tại vào ngày ${format(parseLocal(newItem.date), 'dd/MM/yyyy')}`);
+    }
+    setContextMenu({ ...contextMenu, show: false });
   };
 
   const handleSaveSchedule = () => {
@@ -162,7 +244,7 @@ const ScheduleManager: React.FC = () => {
       periodCount,
     };
 
-    const conflict = checkConflict(newItem, schedules, editItem?.id);
+    const conflict = checkConflict(newItem, schedules, subjects, editItem?.id);
     if (conflict.hasConflict) {
       setFormError(conflict.message);
       return;
@@ -180,7 +262,6 @@ const ScheduleManager: React.FC = () => {
 
   const handleContinueNextWeek = () => {
     // Logic: Copy current week's schedule to next week if subjects not finished
-    // Sort chronologically to handle multi-session subjects correctly for "remaining" calculation
     const currentWeekSchedules = filteredSchedules.filter(s => {
        const d = parseLocal(s.date);
        return d >= weekStart && d < addDays(weekStart, 6);
@@ -193,33 +274,23 @@ const ScheduleManager: React.FC = () => {
 
     let addedCount = 0;
     let warnings: string[] = [];
-    
-    // Track extra periods scheduled in this batch to adjust "remaining" calculation dynamically
-    // Key: subjectId-classId
     const addedPeriodsMap: Record<string, number> = {};
 
     currentWeekSchedules.forEach(item => {
-      // Skip exams - only continue regular classes
       if (item.type === 'exam') return;
 
       const subject = subjects.find(s => s.id === item.subjectId);
       if (!subject) return;
 
-      // Uniquely identify the subject enrollment
       const key = `${item.subjectId}-${item.classId}`;
       const previouslyAdded = addedPeriodsMap[key] || 0;
-
       const progress = calculateSubjectProgress(item.subjectId, item.classId, subject.totalPeriods, schedules);
-      
-      // Real remaining periods considering what we've already scheduled in this loop
       const currentRemaining = progress.remaining - previouslyAdded;
       
-      // If remaining periods > 0, schedule next week
       if (currentRemaining > 0) {
         const nextDate = addDays(parseLocal(item.date), 7);
         const newDateStr = format(nextDate, 'yyyy-MM-dd');
         
-        // Check if next week already has this slot filled (basic idempotent check)
         const exists = schedules.some(s => 
           s.classId === item.classId && 
           s.date === newDateStr && 
@@ -227,9 +298,7 @@ const ScheduleManager: React.FC = () => {
         );
 
         if (!exists) {
-          // Adjust period count if remaining is less than usual (Cap at currentRemaining)
           const periodsToTeach = Math.min(item.periodCount, currentRemaining);
-          
           const newItem = {
             ...item,
             date: newDateStr,
@@ -237,8 +306,7 @@ const ScheduleManager: React.FC = () => {
             status: ScheduleStatus.PENDING
           };
           
-          // Conflict check for next week
-          const conflict = checkConflict(newItem, schedules);
+          const conflict = checkConflict(newItem, schedules, subjects);
           if (!conflict.hasConflict) {
             addSchedule(newItem);
             addedCount++;
@@ -247,7 +315,6 @@ const ScheduleManager: React.FC = () => {
         }
       }
       
-      // Check warning condition based on final remaining after potential add
       const finalRemaining = progress.remaining - (addedPeriodsMap[key] || 0);
       if (finalRemaining <= 4 && finalRemaining > 0) {
          const msg = `Môn ${subject.name} sắp kết thúc (còn ${finalRemaining} tiết)`;
@@ -273,20 +340,14 @@ const ScheduleManager: React.FC = () => {
 
     // 2. Data Rows (Periods 1-10)
     PERIODS.forEach(p => {
-        // Buổi Label (Only for row 1 and 6, others empty for merge)
         const sessionName = p === 1 ? 'Sáng' : (p === 6 ? 'Chiều' : '');
-        
-        const rowData: any[] = [
-             sessionName,
-             p
-        ];
+        const rowData: any[] = [sessionName, p];
 
         weekDays.forEach(day => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const item = filteredSchedules.find(s => s.date === dateStr && s.startPeriod <= p && (s.startPeriod + s.periodCount) > p);
             
             if (item) {
-                // Only write content if it's the starting period of the class
                 if (item.startPeriod === p) {
                     const subj = subjects.find(s => s.id === item.subjectId);
                     const tea = teachers.find(t => t.id === item.teacherId);
@@ -303,7 +364,7 @@ const ScheduleManager: React.FC = () => {
                     
                     rowData.push(cellText);
                 } else {
-                    rowData.push(null); // Return null to indicate merged cell coverage
+                    rowData.push(null); 
                 }
             } else {
                 rowData.push('');
@@ -312,11 +373,10 @@ const ScheduleManager: React.FC = () => {
         data.push(rowData);
     });
 
-    // 3. Footer (Legend)
-    data.push([]); // Empty row
+    // 3. Footer
+    data.push([]);
     const footer1 = ["Sáng:", "", "Tiết 1: 7h30 - 8h15   Tiết 2: 8h15 - 9h00   Ra chơi: 30 phút   Tiết 3: 9h30 - 10h15   Tiết 4: 10h15 - 11h00"];
     const footer2 = ["Chiều:", "", "Tiết 1: 13h15 - 14h00   Tiết 2: 14h00 - 14h45   Ra chơi: 15 phút   Tiết 3: 15h00 - 15h45   Tiết 4: 15h45 - 16h30"];
-    
     data.push(footer1);
     data.push(footer2);
 
@@ -324,28 +384,15 @@ const ScheduleManager: React.FC = () => {
 
     // 4. Styling & Merges
     if(!ws['!merges']) ws['!merges'] = [];
-    
-    // Merge "Buổi" column (Sáng: rows 1-5, Chiều: rows 6-10)
-    // Note: Data array index starts at 0 (Header). So Row 1 (Period 1) is index 1.
-    ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 5, c: 0 } }); // Sáng
-    ws['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 10, c: 0 } }); // Chiều
+    ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 5, c: 0 } });
+    ws['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 10, c: 0 } });
 
-    // Merge Footer Legend Text
-    // Footer starts after: Header (1) + 10 periods + 1 empty row = Index 12
     const footerRowStart = 12;
-    ws['!merges'].push({ s: { r: footerRowStart, c: 2 }, e: { r: footerRowStart, c: 7 } }); // Merge Mon-Sat cols for footer text
+    ws['!merges'].push({ s: { r: footerRowStart, c: 2 }, e: { r: footerRowStart, c: 7 } });
     ws['!merges'].push({ s: { r: footerRowStart + 1, c: 2 }, e: { r: footerRowStart + 1, c: 7 } });
 
-    // Set Column Widths
     ws['!cols'] = [
-        { wch: 8 },  // Col A: Buổi
-        { wch: 5 },  // Col B: Tiết
-        { wch: 25 }, // Mon
-        { wch: 25 }, // Tue
-        { wch: 25 }, // Wed
-        { wch: 25 }, // Thu
-        { wch: 25 }, // Fri
-        { wch: 25 }, // Sat
+        { wch: 8 }, { wch: 5 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 },
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "Lịch Học");
@@ -401,7 +448,7 @@ const ScheduleManager: React.FC = () => {
       </div>
 
       {/* Timetable Grid */}
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
+      <div className="bg-white rounded-xl shadow overflow-x-auto relative">
         <table className="w-full min-w-[1000px] border-collapse">
           <thead>
             <tr className="bg-gray-100 text-gray-700 text-sm uppercase">
@@ -430,12 +477,10 @@ const ScheduleManager: React.FC = () => {
                    <td className="border p-2 text-center font-semibold text-gray-500">{period}</td>
                    {weekDays.map(day => {
                      const dateStr = format(day, 'yyyy-MM-dd');
-                     // Find item starting at this period
                      const item = filteredSchedules.find(s => s.date === dateStr && s.startPeriod === period);
-                     // Find item covering this period (for rowspan logic visualization or skipping)
                      const coveringItem = filteredSchedules.find(s => s.date === dateStr && s.startPeriod < period && (s.startPeriod + s.periodCount) > period);
 
-                     if (coveringItem) return null; // Skip cell if covered by previous row
+                     if (coveringItem) return null;
 
                      if (!item) {
                        return (
@@ -444,6 +489,7 @@ const ScheduleManager: React.FC = () => {
                             className="border p-1 hover:bg-gray-100 transition-colors"
                             onDragOver={handleDragOver}
                             onDrop={(e) => handleDrop(e, day, period)}
+                            onContextMenu={(e) => handleContextMenu(e, day, period)}
                          />
                        );
                      }
@@ -453,7 +499,6 @@ const ScheduleManager: React.FC = () => {
                      const seqInfo = getSessionSequenceInfo(item, schedules, subject?.totalPeriods);
                      const displayCumulative = Math.min(seqInfo.cumulative, subject?.totalPeriods || seqInfo.cumulative);
                      
-                     // Calculate Display Status
                      const computedStatus = determineStatus(item.date, item.startPeriod, item.status);
 
                      let bgColor = 'bg-blue-50 border-l-4 border-blue-500';
@@ -473,6 +518,7 @@ const ScheduleManager: React.FC = () => {
                          onClick={() => { setEditItem(item); setShowAddModal(true); }}
                          draggable="true"
                          onDragStart={(e) => handleDragStart(e, item)}
+                         onContextMenu={(e) => handleContextMenu(e, day, period, item)}
                        >
                          <div className={`h-full w-full p-2 rounded text-xs ${bgColor} flex flex-col justify-between ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}>
                            <div>
@@ -503,6 +549,41 @@ const ScheduleManager: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu.show && (
+        <div 
+            className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-48 animate-in fade-in zoom-in-95 duration-100"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+            {contextMenu.target?.item ? (
+                <button 
+                    onClick={handleCopy}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
+                >
+                    <Copy size={16} className="mr-2" /> Sao chép buổi học
+                </button>
+            ) : (
+                <button 
+                    onClick={handlePaste}
+                    disabled={!copiedItem}
+                    className={`w-full text-left px-4 py-2 flex items-center text-sm ${
+                        copiedItem 
+                        ? 'hover:bg-gray-100 text-gray-700' 
+                        : 'text-gray-400 cursor-not-allowed'
+                    }`}
+                >
+                    <Clipboard size={16} className="mr-2" /> Dán lịch (Giờ cũ)
+                </button>
+            )}
+            
+            {copiedItem && contextMenu.target?.item === undefined && (
+                <div className="px-4 py-1 text-xs text-gray-400 border-t mt-1">
+                   Đã sao chép 1 buổi.
+                </div>
+            )}
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showAddModal && (

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { Teacher, Subject, ClassEntity, ScheduleStatus } from '../types';
-import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import vi from 'date-fns/locale/vi';
 import { parseLocal } from '../utils';
@@ -117,6 +117,7 @@ const Management: React.FC = () => {
            name: newSubject.name,
            majorId: selectedMajor,
            totalPeriods: newSubject.totalPeriods || 0,
+           isShared: newSubject.isShared || false,
            teacher1: newSubject.teacher1 || '',
            phone1: newSubject.phone1 || '',
            teacher2: newSubject.teacher2 || '',
@@ -377,11 +378,11 @@ const Management: React.FC = () => {
 
              <div className="bg-white p-4 rounded shadow space-y-4">
                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                  <div className="md:col-span-5">
+                  <div className="md:col-span-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tên môn học</label>
                     <input className="border p-2 rounded w-full" value={newSubject.name || ''} onChange={e => setNewSubject({...newSubject, name: e.target.value})} placeholder="Nhập tên môn..." />
                   </div>
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-3">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Ngành</label>
                     <select 
                         className="border p-2 rounded w-full" 
@@ -392,9 +393,23 @@ const Management: React.FC = () => {
                         {majors.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                   </div>
-                  <div className="md:col-span-3">
+                  <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tổng số tiết</label>
                     <input type="number" className="border p-2 rounded w-full" value={newSubject.totalPeriods || ''} onChange={e => setNewSubject({...newSubject, totalPeriods: Number(e.target.value)})} placeholder="0" />
+                  </div>
+                   <div className="md:col-span-3 pb-2">
+                    <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input 
+                            type="checkbox" 
+                            className="w-5 h-5 text-blue-600 rounded" 
+                            checked={newSubject.isShared || false}
+                            onChange={e => setNewSubject({...newSubject, isShared: e.target.checked})}
+                        />
+                        <span className="text-gray-700 font-medium flex items-center">
+                            Môn chung (Lớp ghép)
+                            <Users size={14} className="ml-1 text-gray-400" />
+                        </span>
+                    </label>
                   </div>
                </div>
 
@@ -451,7 +466,14 @@ const Management: React.FC = () => {
                       .filter(s => !filterMajorId || s.majorId === filterMajorId)
                       .map(s => (
                       <tr key={s.id} className="border-t hover:bg-gray-50">
-                        <td className="p-3 font-medium align-top">{s.name}</td>
+                        <td className="p-3 align-top">
+                            <div className="font-medium">{s.name}</div>
+                            {s.isShared && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
+                                    <Users size={10} className="mr-1" /> Môn chung
+                                </span>
+                            )}
+                        </td>
                         <td className="p-3 align-top">{majors.find(m => m.id === s.majorId)?.name}</td>
                         <td className="p-3 align-top">{s.totalPeriods}</td>
                         <td className="p-3 text-sm text-gray-600 align-top">
