@@ -45,13 +45,14 @@ const DocumentManager: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (evt) => {
       const content = evt.target?.result as string;
-      addDocument({
+      const newDoc: Omit<DocumentItem, 'id'> = {
         name: file.name,
         type: getFileType(file.name),
         size: file.size,
         uploadDate: new Date().toISOString(),
         content: content
-      });
+      };
+      addDocument(newDoc);
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsDataURL(file);
@@ -66,9 +67,7 @@ const DocumentManager: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const handleDelete = (e: React.MouseEvent, id: string, name: string) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleDelete = (id: string, name: string) => {
     if (window.confirm(`Bạn có chắc chắn muốn xóa tài liệu: ${name}?`)) {
       deleteDocument(id);
     }
@@ -100,17 +99,17 @@ const DocumentManager: React.FC = () => {
 
       <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
         {documents.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center text-gray-400">
+          <div className="p-12 text-center flex flex-col items-center justify-center text-gray-400">
              <FolderOpen size={48} className="mb-4 text-gray-300" />
-             <p className="text-lg">Chưa có tài liệu nào.</p>
-             <p className="text-sm">Hãy tải lên các file Word, Excel, PDF để lưu trữ.</p>
+             <p className="text-lg font-medium">Chưa có tài liệu nào.</p>
+             <p className="text-sm mt-1">Hãy tải lên các file Word, Excel, PDF để lưu trữ.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="p-4 text-gray-600 font-semibold text-sm w-12">#</th>
+                  <th className="p-4 text-gray-600 font-semibold text-sm w-16 text-center">#</th>
                   <th className="p-4 text-gray-600 font-semibold text-sm">Tên tài liệu</th>
                   <th className="p-4 text-gray-600 font-semibold text-sm">Ngày tải lên</th>
                   <th className="p-4 text-gray-600 font-semibold text-sm">Kích thước</th>
@@ -118,7 +117,7 @@ const DocumentManager: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {documents.map((doc, index) => (
+                {documents.map((doc) => (
                   <tr key={doc.id} className="hover:bg-gray-50 transition">
                     <td className="p-4 text-center">
                        {getFileIcon(doc.type)}
@@ -144,7 +143,7 @@ const DocumentManager: React.FC = () => {
                         </button>
                         <button 
                           type="button"
-                          onClick={(e) => handleDelete(e, doc.id, doc.name)}
+                          onClick={() => handleDelete(doc.id, doc.name)}
                           className="text-red-500 hover:text-red-700 p-2 rounded hover:bg-red-50 transition-colors"
                           title="Xóa"
                         >
@@ -158,10 +157,6 @@ const DocumentManager: React.FC = () => {
             </table>
           </div>
         )}
-      </div>
-      
-      <div className="text-xs text-gray-500 italic mt-2">
-         * Lưu ý: Do ứng dụng chạy trên trình duyệt, vui lòng chỉ tải lên các file có dung lượng nhỏ (dưới 2MB) để đảm bảo hiệu suất.
       </div>
     </div>
   );

@@ -199,9 +199,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // NEW: Reset to initial
   const resetData = () => {
-      if(window.confirm("Bạn có chắc chắn muốn xóa toàn bộ dữ liệu và quay về mặc định?")) {
-        setState(INITIAL_DATA);
-      }
+    setState(INITIAL_DATA);
   };
 
   return (

@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { Student } from '../types';
-import { Plus, Trash2, Edit2, Upload, Save, X, Filter, User, HelpCircle, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Plus, Trash2, Edit2, Upload, Save, X, Filter, User, HelpCircle, FileSpreadsheet, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { parseLocal } from '../utils';
 
@@ -14,11 +14,58 @@ const StudentManager: React.FC = () => {
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Student>>({});
   
+  // Sorting state: 'asc' (A-Z), 'desc' (Z-A), or 'default' (insertion order)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | 'default'>('default');
+  const [searchTerm, setSearchTerm] = useState('');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter students by selected class
-  const filteredStudents = students.filter(s => s.classId === selectedClassId);
+  const filteredStudents = students.filter(s => {
+      const matchesClass = s.classId === selectedClassId;
+      if (!matchesClass) return false;
+      
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return s.name.toLowerCase().includes(term) || s.studentCode.toLowerCase().includes(term);
+  });
+  
   const currentClass = classes.find(c => c.id === selectedClassId);
+
+  // Sorting Logic
+  const sortedStudents = useMemo(() => {
+    if (sortOrder === 'default') return filteredStudents;
+
+    // Helper to split name into [LastName+MiddleName, FirstName]
+    // Vietnamese sorting usually prioritizes First Name, then Last Name
+    const getNameParts = (fullName: string) => {
+        const parts = fullName.trim().split(' ');
+        const firstName = parts.pop() || '';
+        const lastName = parts.join(' ');
+        return { firstName: firstName.toLowerCase(), lastName: lastName.toLowerCase() };
+    };
+
+    return [...filteredStudents].sort((a, b) => {
+        const nameA = getNameParts(a.name);
+        const nameB = getNameParts(b.name);
+
+        // 1. Compare First Name
+        const firstCompare = nameA.firstName.localeCompare(nameB.firstName, 'vi');
+        if (firstCompare !== 0) {
+            return sortOrder === 'asc' ? firstCompare : -firstCompare;
+        }
+
+        // 2. Compare Last Name (if First Names are identical)
+        const lastCompare = nameA.lastName.localeCompare(nameB.lastName, 'vi');
+        return sortOrder === 'asc' ? lastCompare : -lastCompare;
+    });
+  }, [filteredStudents, sortOrder]);
+
+  const toggleSort = () => {
+      if (sortOrder === 'default') setSortOrder('asc');
+      else if (sortOrder === 'asc') setSortOrder('desc');
+      else setSortOrder('default');
+  };
 
   const handleOpenAdd = () => {
     setFormData({ 
@@ -69,6 +116,9 @@ const StudentManager: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset immediately to prevent input freezing
+    e.target.value = '';
+
     const reader = new FileReader();
     reader.onload = (evt) => {
         try {
@@ -79,7 +129,7 @@ const StudentManager: React.FC = () => {
             const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
             
             if (!data || data.length < 2) {
-                alert("File Excel rỗng hoặc không đúng định dạng!");
+                setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
                 return;
             }
 
@@ -100,16 +150,13 @@ const StudentManager: React.FC = () => {
 
             if (newStudents.length > 0) {
                 importStudents(newStudents);
-                alert(`Đã nhập thành công ${newStudents.length} học sinh.`);
+                setTimeout(() => alert(`Đã nhập thành công ${newStudents.length} học sinh.`), 100);
             } else {
-                alert("Không tìm thấy dữ liệu hợp lệ trong file Excel.");
+                setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ trong file Excel."), 100);
             }
         } catch (error) {
             console.error(error);
-            alert("Lỗi khi đọc file Excel. Vui lòng kiểm tra lại định dạng file.");
-        } finally {
-             // Reset file input
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            setTimeout(() => alert("Lỗi khi đọc file Excel. Vui lòng kiểm tra lại định dạng file."), 100);
         }
     };
     reader.readAsBinaryString(file);
@@ -142,7 +189,8 @@ const StudentManager: React.FC = () => {
     wsData.push(["STT", "MSSV", "Họ", "Tên", "Ngày sinh", "Ghi chú"]);
 
     // 4. Data Rows
-    filteredStudents.forEach((s, index) => {
+    // Use sortedStudents for export as well if user wants the sorted list
+    sortedStudents.forEach((s, index) => {
         // Split name into Last Name (Họ) and First Name (Tên)
         const parts = s.name.trim().split(' ');
         const firstName = parts.length > 0 ? parts[parts.length - 1] : '';
@@ -162,9 +210,9 @@ const StudentManager: React.FC = () => {
     });
 
     // Add some empty rows if list is small to look good
-    if (filteredStudents.length < 5) {
-        for(let i=0; i< (5 - filteredStudents.length); i++) {
-            wsData.push([filteredStudents.length + i + 1, "", "", "", "", ""]);
+    if (sortedStudents.length < 5) {
+        for(let i=0; i< (5 - sortedStudents.length); i++) {
+            wsData.push([sortedStudents.length + i + 1, "", "", "", "", ""]);
         }
     }
 
@@ -204,16 +252,34 @@ const StudentManager: React.FC = () => {
 
       {/* Toolbar */}
       <div className="bg-white p-4 rounded-xl shadow border border-blue-100 flex flex-col md:flex-row gap-4 justify-between items-center">
-        <div className="flex items-center gap-3 w-full md:w-auto">
-            <Filter size={20} className="text-blue-600" />
-            <span className="font-semibold text-gray-700 whitespace-nowrap">Chọn lớp:</span>
-            <select 
-                className="border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 w-full md:min-w-[250px] bg-gray-50"
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(e.target.value)}
-            >
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+        <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto flex-1">
+            <div className="flex items-center gap-3 w-full md:w-auto">
+                <Filter size={20} className="text-blue-600" />
+                <span className="font-semibold text-gray-700 whitespace-nowrap">Chọn lớp:</span>
+                <select 
+                    className="border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-[250px] bg-gray-50"
+                    value={selectedClassId}
+                    onChange={(e) => setSelectedClassId(e.target.value)}
+                >
+                    {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+            </div>
+
+            <div className="relative w-full md:w-64">
+                <Search size={18} className="text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                    type="text" 
+                    placeholder="Tìm tên hoặc mã HS..." 
+                    className="w-full border p-2 pl-9 rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        <X size={14} />
+                    </button>
+                )}
+            </div>
         </div>
 
         <div className="flex gap-2">
@@ -254,7 +320,7 @@ const StudentManager: React.FC = () => {
       <div className="bg-white rounded-xl shadow overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
             <h2 className="font-bold text-gray-700">Danh sách lớp: {currentClass?.name}</h2>
-            <span className="text-sm text-gray-500">Sĩ số: {filteredStudents.length} / {currentClass?.studentCount}</span>
+            <span className="text-sm text-gray-500">Sĩ số: {sortedStudents.length} / {currentClass?.studentCount}</span>
         </div>
         <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -262,7 +328,16 @@ const StudentManager: React.FC = () => {
                     <tr>
                         <th className="p-3 border-b">STT</th>
                         <th className="p-3 border-b">Mã HS</th>
-                        <th className="p-3 border-b">Họ tên</th>
+                        <th 
+                            className="p-3 border-b cursor-pointer hover:bg-gray-200 transition-colors select-none flex items-center gap-1 group"
+                            onClick={toggleSort}
+                            title="Bấm để sắp xếp theo tên"
+                        >
+                            Họ tên
+                            {sortOrder === 'default' && <ArrowUpDown size={14} className="text-gray-400 group-hover:text-gray-600" />}
+                            {sortOrder === 'asc' && <ArrowUp size={14} className="text-blue-600" />}
+                            {sortOrder === 'desc' && <ArrowDown size={14} className="text-blue-600" />}
+                        </th>
                         <th className="p-3 border-b">Ngày sinh</th>
                         <th className="p-3 border-b">Nơi sinh</th>
                         <th className="p-3 border-b">Phụ huynh</th>
@@ -271,14 +346,16 @@ const StudentManager: React.FC = () => {
                     </tr>
                 </thead>
                 <tbody className="divide-y">
-                    {filteredStudents.length === 0 ? (
+                    {sortedStudents.length === 0 ? (
                         <tr>
                             <td colSpan={8} className="p-8 text-center text-gray-400 italic">
-                                Chưa có học sinh nào trong lớp này. Hãy thêm mới hoặc nhập từ Excel.
+                                {searchTerm 
+                                    ? `Không tìm thấy học sinh nào phù hợp với "${searchTerm}".` 
+                                    : "Chưa có học sinh nào trong lớp này. Hãy thêm mới hoặc nhập từ Excel."}
                             </td>
                         </tr>
                     ) : (
-                        filteredStudents.map((s, index) => (
+                        sortedStudents.map((s, index) => (
                             <tr key={s.id} className="hover:bg-blue-50 transition">
                                 <td className="p-3 text-center text-gray-500">{index + 1}</td>
                                 <td className="p-3 font-semibold text-blue-600">{s.studentCode}</td>

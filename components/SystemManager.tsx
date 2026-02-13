@@ -49,6 +49,20 @@ const SystemManager: React.FC = () => {
       reader.readAsText(file);
   };
 
+  const handleResetWithBackup = () => {
+      const confirmMsg = "CẢNH BÁO QUAN TRỌNG:\n\nBạn đang thực hiện xóa toàn bộ dữ liệu hệ thống. Hành động này không thể hoàn tác.\n\nĐể đảm bảo an toàn, hệ thống sẽ tự động lưu một bản dự phòng dữ liệu hiện tại trước khi xóa.\n\nBạn có chắc chắn muốn tiếp tục?";
+      if (window.confirm(confirmMsg)) {
+          // 1. Auto Backup
+          handleBackup();
+          
+          // 2. Reset with delay to ensure download starts
+          setTimeout(() => {
+              resetData();
+              alert("Đã sao lưu dữ liệu và reset hệ thống về mặc định.");
+          }, 500);
+      }
+  };
+
   return (
     <div className="space-y-6">
         <h1 className="text-2xl font-bold text-gray-800">Hệ thống & Cấu hình</h1>
@@ -108,7 +122,7 @@ const SystemManager: React.FC = () => {
                     <RefreshCcw className="mr-2" size={18} /> Vùng nguy hiểm
                 </h3>
                 <button 
-                    onClick={resetData}
+                    onClick={handleResetWithBackup}
                     className="text-red-500 border border-red-200 hover:bg-red-50 px-4 py-2 rounded transition"
                 >
                     Xóa toàn bộ dữ liệu & Reset về mặc định

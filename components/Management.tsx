@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { Teacher, Subject, ClassEntity } from '../types';
-import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle, Users } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Plus, Trash2, Edit2, Save, X, Filter, Search, Phone, Upload, HelpCircle, Users, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import XLSX from 'xlsx';
 
 const Management: React.FC = () => {
   const { 
@@ -17,6 +17,7 @@ const Management: React.FC = () => {
   const [newTeacher, setNewTeacher] = useState<Partial<Teacher>>({});
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
   const [teacherSearch, setTeacherSearch] = useState('');
+  const [teacherSort, setTeacherSort] = useState<'asc' | 'desc' | 'default'>('default');
 
   const [newSubject, setNewSubject] = useState<Partial<Subject>>({});
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
@@ -25,9 +26,47 @@ const Management: React.FC = () => {
 
   const [newClass, setNewClass] = useState<Partial<ClassEntity>>({});
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [classSearch, setClassSearch] = useState('');
 
   const fileInputTeacherRef = useRef<HTMLInputElement>(null);
   const fileInputSubjectRef = useRef<HTMLInputElement>(null);
+  const fileInputClassRef = useRef<HTMLInputElement>(null);
+
+  // Teacher Sorting Logic
+  const sortedTeachers = useMemo(() => {
+    let list = teachers.filter(t => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
+
+    if (teacherSort === 'default') return list;
+
+    return [...list].sort((a, b) => {
+        // Helper to split name into [LastName+MiddleName, FirstName]
+        const getNameParts = (fullName: string) => {
+            const parts = fullName.trim().split(' ');
+            const firstName = parts.pop() || '';
+            const lastName = parts.join(' ');
+            return { firstName: firstName.toLowerCase(), lastName: lastName.toLowerCase() };
+        };
+
+        const nameA = getNameParts(a.name);
+        const nameB = getNameParts(b.name);
+
+        // 1. Compare First Name
+        const firstCompare = nameA.firstName.localeCompare(nameB.firstName, 'vi');
+        if (firstCompare !== 0) {
+            return teacherSort === 'asc' ? firstCompare : -firstCompare;
+        }
+
+        // 2. Compare Last Name (if First Names are identical)
+        const lastCompare = nameA.lastName.localeCompare(nameB.lastName, 'vi');
+        return teacherSort === 'asc' ? lastCompare : -lastCompare;
+    });
+  }, [teachers, teacherSearch, teacherSort]);
+
+  const toggleTeacherSort = () => {
+      if (teacherSort === 'default') setTeacherSort('asc');
+      else if (teacherSort === 'asc') setTeacherSort('desc');
+      else setTeacherSort('default');
+  };
 
   // Handlers
   const handleSaveTeacher = () => {
@@ -65,6 +104,9 @@ const Management: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
 
+      // Reset immediately to prevent input freezing
+      e.target.value = '';
+
       const reader = new FileReader();
       reader.onload = (evt) => {
           try {
@@ -75,7 +117,7 @@ const Management: React.FC = () => {
               const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
               
               if (!data || data.length < 2) {
-                  alert("File Excel rỗng hoặc không đúng định dạng!");
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
                   return;
               }
 
@@ -94,15 +136,14 @@ const Management: React.FC = () => {
 
               if (newTeachers.length > 0) {
                   importTeachers(newTeachers);
-                  alert(`Đã nhập thành công ${newTeachers.length} giáo viên.`);
+                  setTimeout(() => alert(`Đã nhập thành công ${newTeachers.length} giáo viên.`), 100);
               } else {
-                  alert("Không tìm thấy dữ liệu hợp lệ.");
+                  setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
               }
           } catch (error) {
               console.error(error);
-              alert("Lỗi khi đọc file Excel.");
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
           }
-          if (fileInputTeacherRef.current) fileInputTeacherRef.current.value = '';
       };
       reader.readAsBinaryString(file);
   };
@@ -120,8 +161,6 @@ const Management: React.FC = () => {
            phone1: newSubject.phone1 || '',
            teacher2: newSubject.teacher2 || '',
            phone2: newSubject.phone2 || '',
-           teacher3: newSubject.teacher3 || '',
-           phone3: newSubject.phone3 || '',
        };
 
       if (editingSubjectId) {
@@ -148,6 +187,9 @@ const Management: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
 
+      // Reset immediately
+      e.target.value = '';
+
       const reader = new FileReader();
       reader.onload = (evt) => {
           try {
@@ -158,7 +200,7 @@ const Management: React.FC = () => {
               const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
               if (!data || data.length < 2) {
-                  alert("File Excel rỗng hoặc không đúng định dạng!");
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
                   return;
               }
 
@@ -185,15 +227,72 @@ const Management: React.FC = () => {
                    if (missingMajors > 0) {
                        msg += `\nLưu ý: Có ${missingMajors} môn chưa tìm thấy Ngành học tương ứng trong hệ thống (vui lòng kiểm tra tên Ngành trong file Excel hoặc cập nhật thủ công).`;
                    }
-                   alert(msg);
+                   setTimeout(() => alert(msg), 100);
                } else {
-                   alert("Không tìm thấy dữ liệu hợp lệ.");
+                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
                }
           } catch (error) {
               console.error(error);
-              alert("Lỗi khi đọc file Excel.");
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
           }
-           if (fileInputSubjectRef.current) fileInputSubjectRef.current.value = '';
+      };
+      reader.readAsBinaryString(file);
+  };
+
+  const handleClassFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Reset immediately
+      e.target.value = '';
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const bstr = evt.target?.result;
+              const wb = XLSX.read(bstr, { type: 'binary' });
+              const wsname = wb.SheetNames[0];
+              const ws = wb.Sheets[wsname];
+              const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+              if (!data || data.length < 2) {
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
+                  return;
+              }
+
+              const rows = data.slice(1) as any[];
+              
+              // Map columns: 0: Name, 1: Major Name, 2: Student Count, 3: School Year
+              const newClasses = rows.map(row => {
+                  const majorName = row[1] ? String(row[1]).trim() : '';
+                  const major = majors.find(m => m.name.toLowerCase() === majorName.toLowerCase());
+                  
+                  return {
+                      name: row[0] || '',
+                      majorId: major ? major.id : '',
+                      studentCount: row[2] ? Number(row[2]) : 0,
+                      schoolYear: row[3] ? String(row[3]) : ''
+                  };
+              }).filter(c => c.name);
+
+               const missingMajors = newClasses.filter(c => !c.majorId).length;
+               
+               if (newClasses.length > 0) {
+                   // Add classes one by one as importClasses is not available in context
+                   newClasses.forEach(c => addClass(c));
+                   
+                   let msg = `Đã nhập thành công ${newClasses.length} lớp.`;
+                   if (missingMajors > 0) {
+                       msg += `\nLưu ý: Có ${missingMajors} lớp chưa tìm thấy Ngành học tương ứng trong hệ thống.`;
+                   }
+                   setTimeout(() => alert(msg), 100);
+               } else {
+                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
+               }
+          } catch (error) {
+              console.error(error);
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
+          }
       };
       reader.readAsBinaryString(file);
   };
@@ -307,7 +406,16 @@ const Management: React.FC = () => {
                <table className="w-full text-left">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="p-3">Họ tên</th>
+                      <th 
+                        className="p-3 cursor-pointer hover:bg-gray-200 transition-colors select-none flex items-center gap-1 group"
+                        onClick={toggleTeacherSort}
+                        title="Bấm để sắp xếp theo tên"
+                      >
+                        Họ tên
+                        {teacherSort === 'default' && <ArrowUpDown size={14} className="text-gray-400 group-hover:text-gray-600" />}
+                        {teacherSort === 'asc' && <ArrowUp size={14} className="text-blue-600" />}
+                        {teacherSort === 'desc' && <ArrowDown size={14} className="text-blue-600" />}
+                      </th>
                       <th className="p-3">Điện thoại</th>
                       <th className="p-3">Ngân hàng</th>
                       <th className="p-3">Thù lao</th>
@@ -315,11 +423,9 @@ const Management: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {teachers
-                      .filter(t => t.name.toLowerCase().includes(teacherSearch.toLowerCase()))
-                      .map(t => (
+                    {sortedTeachers.map(t => (
                       <tr key={t.id} className="border-t hover:bg-gray-50">
-                        <td className="p-3">{t.name}</td>
+                        <td className="p-3 font-medium">{t.name}</td>
                         <td className="p-3">{t.phone}</td>
                         <td className="p-3">{t.bank} - {t.accountNumber}</td>
                         <td className="p-3">{t.ratePerPeriod.toLocaleString()}</td>
@@ -329,7 +435,7 @@ const Management: React.FC = () => {
                         </td>
                       </tr>
                     ))}
-                    {teachers.filter(t => t.name.toLowerCase().includes(teacherSearch.toLowerCase())).length === 0 && (
+                    {sortedTeachers.length === 0 && (
                       <tr>
                         <td colSpan={5} className="p-8 text-center text-gray-400 italic">Không tìm thấy giáo viên nào.</td>
                       </tr>
@@ -427,40 +533,35 @@ const Management: React.FC = () => {
                   </div>
                </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
-                  <div className="space-y-2">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4 items-end">
+                  <div className="space-y-1">
                      <p className="text-sm font-bold text-gray-600">Giáo viên phụ trách 1</p>
-                     <input className="border p-2 rounded w-full text-sm" placeholder="Họ tên" value={newSubject.teacher1 || ''} onChange={e => setNewSubject({...newSubject, teacher1: e.target.value})} />
-                     <div className="flex items-center">
-                       <Phone size={14} className="text-gray-400 mr-2" />
-                       <input className="border p-2 rounded w-full text-sm" placeholder="Số điện thoại" value={newSubject.phone1 || ''} onChange={e => setNewSubject({...newSubject, phone1: e.target.value})} />
+                     <div className="flex items-center gap-2">
+                        <input className="border p-2 rounded flex-1 text-sm" placeholder="Họ tên" value={newSubject.teacher1 || ''} onChange={e => setNewSubject({...newSubject, teacher1: e.target.value})} />
+                        <div className="relative flex-1">
+                            <Phone size={14} className="text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                            <input className="border p-2 pl-8 rounded w-full text-sm" placeholder="Số điện thoại" value={newSubject.phone1 || ''} onChange={e => setNewSubject({...newSubject, phone1: e.target.value})} />
+                        </div>
                      </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                      <p className="text-sm font-bold text-gray-600">Giáo viên phụ trách 2</p>
-                     <input className="border p-2 rounded w-full text-sm" placeholder="Họ tên" value={newSubject.teacher2 || ''} onChange={e => setNewSubject({...newSubject, teacher2: e.target.value})} />
-                     <div className="flex items-center">
-                       <Phone size={14} className="text-gray-400 mr-2" />
-                       <input className="border p-2 rounded w-full text-sm" placeholder="Số điện thoại" value={newSubject.phone2 || ''} onChange={e => setNewSubject({...newSubject, phone2: e.target.value})} />
+                     <div className="flex items-center gap-2">
+                        <input className="border p-2 rounded flex-1 text-sm" placeholder="Họ tên" value={newSubject.teacher2 || ''} onChange={e => setNewSubject({...newSubject, teacher2: e.target.value})} />
+                        <div className="relative flex-1">
+                            <Phone size={14} className="text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                            <input className="border p-2 pl-8 rounded w-full text-sm" placeholder="Số điện thoại" value={newSubject.phone2 || ''} onChange={e => setNewSubject({...newSubject, phone2: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2">
+                             {editingSubjectId && (
+                               <button onClick={handleCancelSubject} className="bg-gray-300 text-gray-700 p-2 rounded px-3 text-sm whitespace-nowrap h-[38px]">Hủy</button>
+                             )}
+                             <button onClick={handleSaveSubject} className={`text-white p-2 rounded px-4 flex items-center text-sm whitespace-nowrap h-[38px] ${editingSubjectId ? 'bg-orange-500' : 'bg-green-600'}`}>
+                               {editingSubjectId ? <><Save size={16} className="mr-1"/> Cập nhật</> : <><Plus size={16} className="mr-1"/> Thêm</>}
+                             </button>
+                         </div>
                      </div>
                   </div>
-                  <div className="space-y-2">
-                     <p className="text-sm font-bold text-gray-600">Giáo viên phụ trách 3</p>
-                     <input className="border p-2 rounded w-full text-sm" placeholder="Họ tên" value={newSubject.teacher3 || ''} onChange={e => setNewSubject({...newSubject, teacher3: e.target.value})} />
-                     <div className="flex items-center">
-                       <Phone size={14} className="text-gray-400 mr-2" />
-                       <input className="border p-2 rounded w-full text-sm" placeholder="Số điện thoại" value={newSubject.phone3 || ''} onChange={e => setNewSubject({...newSubject, phone3: e.target.value})} />
-                     </div>
-                  </div>
-               </div>
-               
-               <div className="flex justify-end gap-2 pt-2">
-                 {editingSubjectId && (
-                   <button onClick={handleCancelSubject} className="bg-gray-300 text-gray-700 p-2 rounded px-4">Hủy</button>
-                 )}
-                 <button onClick={handleSaveSubject} className={`text-white p-2 rounded px-6 flex items-center ${editingSubjectId ? 'bg-orange-500' : 'bg-green-600'}`}>
-                   {editingSubjectId ? <><Save size={18} className="mr-1"/> Cập nhật</> : <><Plus size={18} className="mr-1"/> Thêm Môn học</>}
-                 </button>
                </div>
             </div>
 
@@ -493,8 +594,7 @@ const Management: React.FC = () => {
                         <td className="p-3 text-sm text-gray-600 align-top">
                            {s.teacher1 && <div>1. {s.teacher1} - {s.phone1}</div>}
                            {s.teacher2 && <div>2. {s.teacher2} - {s.phone2}</div>}
-                           {s.teacher3 && <div>3. {s.teacher3} - {s.phone3}</div>}
-                           {!s.teacher1 && !s.teacher2 && !s.teacher3 && <span className="italic text-gray-400">Chưa cập nhật</span>}
+                           {!s.teacher1 && !s.teacher2 && <span className="italic text-gray-400">Chưa cập nhật</span>}
                         </td>
                         <td className="p-3 flex space-x-2 align-top">
                            <button onClick={() => handleEditSubject(s)} className="text-orange-500" title="Sửa"><Edit2 size={18} /></button>
@@ -541,6 +641,38 @@ const Management: React.FC = () => {
                  )}
                </div>
             </div>
+
+             <div className="bg-white p-3 rounded shadow border border-gray-100 flex flex-col md:flex-row items-center gap-3">
+              <div className="flex items-center gap-2 flex-1 w-full">
+                  <Search size={20} className="text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Tìm kiếm lớp..." 
+                    className="flex-1 outline-none text-sm"
+                    value={classSearch}
+                    onChange={(e) => setClassSearch(e.target.value)}
+                  />
+                  {classSearch && (
+                    <button onClick={() => setClassSearch('')} className="text-gray-400 hover:text-gray-600">
+                      <X size={16} />
+                    </button>
+                  )}
+              </div>
+              <div className="flex items-center gap-2">
+                 <input type="file" ref={fileInputClassRef} accept=".xlsx,.xls" className="hidden" onChange={handleClassFileUpload} />
+                 <button onClick={() => fileInputClassRef.current?.click()} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 border border-green-200">
+                    <Upload size={16} /> Nhập Excel
+                 </button>
+                 <div className="relative group">
+                    <HelpCircle size={18} className="text-gray-400 cursor-help" />
+                    <div className="absolute right-0 top-8 w-64 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10 hidden group-hover:block">
+                       File Excel: <strong>Tên lớp | Ngành học | Số lượng | Niên khóa</strong>
+                       <br/><span className="text-[10px] opacity-75">Tên Ngành cần khớp với hệ thống.</span>
+                    </div>
+                 </div>
+              </div>
+            </div>
+
              <div className="bg-white rounded shadow overflow-hidden">
                <table className="w-full text-left">
                   <thead className="bg-gray-50">
@@ -553,7 +685,9 @@ const Management: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {classes.map(c => (
+                    {classes
+                      .filter(c => c.name.toLowerCase().includes(classSearch.toLowerCase()))
+                      .map(c => (
                       <tr key={c.id} className="border-t hover:bg-gray-50">
                         <td className="p-3 font-medium">{c.name}</td>
                         <td className="p-3">{majors.find(m => m.id === c.majorId)?.name}</td>
@@ -565,6 +699,11 @@ const Management: React.FC = () => {
                         </td>
                       </tr>
                     ))}
+                    {classes.filter(c => c.name.toLowerCase().includes(classSearch.toLowerCase())).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-gray-400 italic">Không tìm thấy lớp học nào.</td>
+                      </tr>
+                    )}
                   </tbody>
                </table>
             </div>

@@ -1,14 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { ScheduleStatus } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import * as XLSX from 'xlsx';
-import { Download, AlertCircle } from 'lucide-react';
+import XLSX from 'xlsx';
+import { Download, AlertCircle, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { parseLocal } from '../utils';
 
 const Statistics: React.FC = () => {
   const { teachers, schedules, subjects, classes } = useApp();
+  const [showAlert, setShowAlert] = useState(true);
 
   // 1. Missed classes needing makeup
   const missedClasses = schedules.filter(s => s.status === ScheduleStatus.OFF);
@@ -86,10 +87,10 @@ const Statistics: React.FC = () => {
       <h1 className="text-2xl font-bold text-gray-800">Thống kê báo cáo</h1>
 
       {/* Quick Alert: Missed Classes */}
-      {missedClasses.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="text-red-500 mt-1" />
-          <div>
+      {missedClasses.length > 0 && showAlert && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3 relative">
+          <AlertCircle className="text-red-500 mt-1 flex-shrink-0" />
+          <div className="flex-1">
              <h3 className="font-bold text-red-700">Cần xếp lịch bù ({missedClasses.length} buổi)</h3>
              <ul className="text-sm text-red-600 mt-1 list-disc pl-4">
                {missedClasses.map(m => (
@@ -99,6 +100,13 @@ const Statistics: React.FC = () => {
                ))}
              </ul>
           </div>
+          <button 
+            onClick={() => setShowAlert(false)} 
+            className="text-red-400 hover:text-red-600 p-1 hover:bg-red-100 rounded absolute top-2 right-2"
+            title="Đóng thông báo"
+          >
+            <X size={20} />
+          </button>
         </div>
       )}
 

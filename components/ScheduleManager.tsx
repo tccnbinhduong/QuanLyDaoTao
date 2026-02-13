@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
-import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal, determineStatus, getSessionSequenceInfo } from '../utils';
+import { checkConflict, calculateSubjectProgress, getSessionFromPeriod, parseLocal, determineStatus, getSessionSequenceInfo, generateId } from '../utils';
 import { ScheduleItem, ScheduleStatus } from '../types';
 import { format, addDays, isSameDay, getWeek } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, FileSpreadsheet, ListFilter, X, Copy, Clipboard } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Calendar as CalendarIcon, Plus, ChevronRight, ChevronLeft, AlertCircle, Save, Trash2, FileSpreadsheet, ListFilter, X, Copy, Clipboard, Users, Download } from 'lucide-react';
+import XLSX from 'xlsx';
 
 const DAYS_OF_WEEK = [
   { label: 'Thứ 2', val: 1 },
@@ -48,6 +48,9 @@ const ScheduleManager: React.FC = () => {
   const [formPeriodCount, setFormPeriodCount] = useState(3);
   const [formError, setFormError] = useState('');
 
+  // NEW: State for Shared Class Selection
+  const [selectedSharedClasses, setSelectedSharedClasses] = useState<string[]>([]);
+
   const getStartOfWeek = (date: Date) => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
@@ -73,6 +76,22 @@ const ScheduleManager: React.FC = () => {
     // Only return subjects that match the class's majorId
     return subjects.filter(s => s.majorId === currentClass.majorId);
   }, [subjects, classes, selectedClassId]);
+
+  // Check if current form subject is shared
+  const currentFormSubject = subjects.find(s => s.id === (editItem ? editItem.subjectId : formSubjectId));
+  const isFormSubjectShared = !!currentFormSubject?.isShared;
+
+  // Initialize shared classes when form opens or subject changes
+  useEffect(() => {
+    if (showAddModal && !editItem) {
+        // If it's a shared subject, ensure current class is selected.
+        // If switching to a shared subject, reset to just current class initially
+        if (!selectedSharedClasses.includes(selectedClassId)) {
+            setSelectedSharedClasses([selectedClassId]);
+        }
+    }
+  }, [showAddModal, formSubjectId, selectedClassId]);
+
 
   // Close context menu on click outside
   useEffect(() => {
@@ -101,6 +120,23 @@ const ScheduleManager: React.FC = () => {
     setFormError('');
     setEditItem(null);
     setFormType('class');
+    setSelectedSharedClasses([selectedClassId]);
+  };
+
+  // Helper to find all related items for a shared subject (siblings in other classes)
+  const getRelatedSharedItems = (sourceItem: ScheduleItem) => {
+    const subject = subjects.find(s => s.id === sourceItem.subjectId);
+    if (!subject?.isShared) return [sourceItem];
+
+    // Find items with same Subject, Teacher, Room, Date, StartPeriod
+    return schedules.filter(s => 
+        s.subjectId === sourceItem.subjectId &&
+        s.teacherId === sourceItem.teacherId &&
+        s.roomId === sourceItem.roomId &&
+        s.date === sourceItem.date &&
+        s.startPeriod === sourceItem.startPeriod
+        // Note: Removed status check to include OFF items in sync
+    );
   };
 
   // Drag and Drop Handlers
@@ -126,24 +162,36 @@ const ScheduleManager: React.FC = () => {
         return;
     }
 
-    const newItem = {
-        type: draggedItem.type,
-        teacherId: draggedItem.teacherId,
-        subjectId: draggedItem.subjectId,
-        classId: draggedItem.classId,
-        roomId: draggedItem.roomId,
-        date: targetDateStr,
-        session: getSessionFromPeriod(targetPeriod),
-        startPeriod: targetPeriod,
-        periodCount: draggedItem.periodCount,
-    };
+    // Determine items to copy (Single or Batch for Shared)
+    const itemsToCopy = getRelatedSharedItems(draggedItem);
+    let successCount = 0;
 
-    const conflict = checkConflict(newItem, schedules, subjects); 
-    if (conflict.hasConflict) {
-        alert(`Không thể sao chép: ${conflict.message}`);
-    } else {
-        addSchedule(newItem);
+    itemsToCopy.forEach(sourceItem => {
+        const newItem = {
+            type: sourceItem.type,
+            teacherId: sourceItem.teacherId,
+            subjectId: sourceItem.subjectId,
+            classId: sourceItem.classId,
+            roomId: sourceItem.roomId,
+            date: targetDateStr,
+            session: getSessionFromPeriod(targetPeriod),
+            startPeriod: targetPeriod,
+            periodCount: sourceItem.periodCount,
+        };
+
+        const conflict = checkConflict(newItem, schedules, subjects); 
+        if (!conflict.hasConflict) {
+            addSchedule(newItem);
+            successCount++;
+        }
+    });
+
+    if (successCount === 0) {
+        alert(`Không thể sao chép (Trùng lịch).`);
+    } else if (itemsToCopy.length > 1 && successCount < itemsToCopy.length) {
+         alert(`Đã sao chép ${successCount}/${itemsToCopy.length} lớp (Một số lớp bị trùng lịch).`);
     }
+
     setDraggedItem(null);
   };
 
@@ -172,48 +220,73 @@ const ScheduleManager: React.FC = () => {
     const sourceSubject = subjects.find(s => s.id === copiedItem.subjectId);
     if (!sourceSubject) return;
 
-    // 2. Find Equivalent Subject in Target Class (Match by Name and Total Periods)
-    const targetSubject = availableSubjects.find(s => 
-        s.name === sourceSubject.name && 
-        s.totalPeriods === sourceSubject.totalPeriods
-    );
-
-    if (!targetSubject) {
-        alert(`Không tìm thấy môn "${sourceSubject.name}" (${sourceSubject.totalPeriods} tiết) trong chương trình học của lớp này.`);
-        setContextMenu({ ...contextMenu, show: false });
-        return;
-    }
-
-    // 3. Create new item using CLICKED location (Target Date & Period)
-    // This allows flexible pasting across different days/weeks
+    // 2. Determine Items to Paste
+    const sourceItems = getRelatedSharedItems(copiedItem);
     const targetDateStr = format(contextMenu.target.date, 'yyyy-MM-dd');
     const targetPeriod = contextMenu.target.period;
+    let pastedCount = 0;
 
-    const newItem = {
-        type: copiedItem.type,
-        teacherId: copiedItem.teacherId,
-        subjectId: targetSubject.id, 
-        classId: selectedClassId,    // Paste into currently selected class
-        roomId: copiedItem.roomId,
-        date: targetDateStr,
-        session: getSessionFromPeriod(targetPeriod),
-        startPeriod: targetPeriod,
-        periodCount: copiedItem.periodCount,
-        status: ScheduleStatus.PENDING 
-    };
+    sourceItems.forEach(src => {
+        const newItem = {
+            type: src.type,
+            teacherId: src.teacherId,
+            subjectId: src.subjectId, // Same subject ID
+            classId: src.classId,     // Keep the class ID from source to maintain the "Shared Group"
+            roomId: src.roomId,
+            date: targetDateStr,
+            session: getSessionFromPeriod(targetPeriod),
+            startPeriod: targetPeriod,
+            periodCount: src.periodCount,
+            status: ScheduleStatus.PENDING 
+        };
 
-    // Check if we are pasting into the exact same class/slot (duplicate)
-    if (newItem.classId === copiedItem.classId && newItem.date === copiedItem.date && newItem.startPeriod === copiedItem.startPeriod) {
-       // Just pasting over itself, usually harmless but redundant
+        // Check conflicts
+        const conflict = checkConflict(newItem, schedules, subjects);
+        if (!conflict.hasConflict) {
+            addSchedule(newItem);
+            pastedCount++;
+        }
+    });
+
+    if (pastedCount === 0) {
+        alert("Không thể dán (Trùng lịch).");
     }
 
-    const conflict = checkConflict(newItem, schedules, subjects);
-    if (conflict.hasConflict) {
-         alert(`Không thể dán (Trùng lịch): ${conflict.message}`);
-    } else {
-         addSchedule(newItem);
-    }
     setContextMenu({ ...contextMenu, show: false });
+  };
+
+  const handleDeleteItem = () => {
+      if (!editItem) return;
+      
+      const originalItem = schedules.find(s => s.id === editItem.id);
+      if (!originalItem) return;
+
+      const relatedItems = getRelatedSharedItems(originalItem);
+      
+      if (relatedItems.length > 1) {
+          if (!window.confirm(`Đây là môn học chung đang dạy cho ${relatedItems.length} lớp. Bạn có muốn xóa lịch của TẤT CẢ các lớp này không?`)) {
+              return;
+          }
+      }
+
+      relatedItems.forEach(item => deleteSchedule(item.id));
+      setShowAddModal(false);
+  }
+
+  const handleStatusChange = (newStatus: ScheduleStatus) => {
+    if (!editItem) return;
+    
+    const originalItem = schedules.find(s => s.id === editItem.id);
+    if (!originalItem) return;
+
+    const relatedItems = getRelatedSharedItems(originalItem);
+    
+    // Auto-update all shared items
+    relatedItems.forEach(item => {
+        updateSchedule(item.id, { status: newStatus });
+    });
+
+    setEditItem({ ...editItem, status: newStatus });
   };
 
   const handleSaveSchedule = () => {
@@ -232,11 +305,11 @@ const ScheduleManager: React.FC = () => {
       return;
     }
 
-    const newItem = {
+    const baseItem = {
       type,
       teacherId,
       subjectId,
-      classId,
+      classId, // Default placeholder
       roomId,
       date,
       session: getSessionFromPeriod(startPeriod),
@@ -244,16 +317,48 @@ const ScheduleManager: React.FC = () => {
       periodCount,
     };
 
-    const conflict = checkConflict(newItem, schedules, subjects, editItem?.id);
-    if (conflict.hasConflict) {
-      setFormError(conflict.message);
-      return;
-    }
-
     if (editItem) {
-      updateSchedule(editItem.id, newItem);
+        // Edit Mode
+        const originalItem = schedules.find(s => s.id === editItem.id);
+        if (originalItem) {
+            const relatedItems = getRelatedSharedItems(originalItem);
+
+            // 2. Validate conflicts for ALL siblings with NEW data
+            for (const item of relatedItems) {
+                 const itemToCheck = { ...baseItem, classId: item.classId };
+                 const conflict = checkConflict(itemToCheck, schedules, subjects, item.id);
+                 if (conflict.hasConflict) {
+                     const className = classes.find(c => c.id === item.classId)?.name;
+                     setFormError(`Lớp ${className}: ${conflict.message}`);
+                     return;
+                 }
+            }
+
+            // 3. Update ALL siblings
+            relatedItems.forEach(item => {
+                updateSchedule(item.id, { ...baseItem, classId: item.classId });
+            });
+        }
     } else {
-      addSchedule(newItem);
+        // Add Mode
+        const targetClassIds = isFormSubjectShared ? selectedSharedClasses : [classId];
+
+        // 1. Validation Phase
+        for (const targetId of targetClassIds) {
+            const itemToCheck = { ...baseItem, classId: targetId };
+            const conflict = checkConflict(itemToCheck, schedules, subjects);
+            if (conflict.hasConflict) {
+                 const className = classes.find(c => c.id === targetId)?.name;
+                 setFormError(`Lớp ${className}: ${conflict.message}`);
+                 return; 
+            }
+        }
+
+        // 2. Execution Phase
+        targetClassIds.forEach(targetId => {
+            const newItem = { ...baseItem, classId: targetId };
+            addSchedule(newItem);
+        });
     }
     
     setShowAddModal(false);
@@ -275,6 +380,7 @@ const ScheduleManager: React.FC = () => {
     let addedCount = 0;
     let warnings: string[] = [];
     const addedPeriodsMap: Record<string, number> = {};
+    const processedSharedKeys: Set<string> = new Set(); // To avoid processing same shared group multiple times
 
     currentWeekSchedules.forEach(item => {
       if (item.type === 'exam') return;
@@ -282,44 +388,64 @@ const ScheduleManager: React.FC = () => {
       const subject = subjects.find(s => s.id === item.subjectId);
       if (!subject) return;
 
-      const key = `${item.subjectId}-${item.classId}`;
-      const previouslyAdded = addedPeriodsMap[key] || 0;
-      const progress = calculateSubjectProgress(item.subjectId, item.classId, subject.totalPeriods, schedules);
-      const currentRemaining = progress.remaining - previouslyAdded;
-      
-      if (currentRemaining > 0) {
-        const nextDate = addDays(parseLocal(item.date), 7);
-        const newDateStr = format(nextDate, 'yyyy-MM-dd');
-        
-        const exists = schedules.some(s => 
-          s.classId === item.classId && 
-          s.date === newDateStr && 
-          s.startPeriod === item.startPeriod
-        );
+      const slotKey = `${item.date}-${item.startPeriod}-${item.teacherId}-${item.subjectId}`;
+      let itemsToProcess = [item];
 
-        if (!exists) {
-          const periodsToTeach = Math.min(item.periodCount, currentRemaining);
-          const newItem = {
-            ...item,
-            date: newDateStr,
-            periodCount: periodsToTeach,
-            status: ScheduleStatus.PENDING
-          };
+      // If Shared Subject: Find all parallel classes for this slot
+      if (subject.isShared) {
+          if (processedSharedKeys.has(slotKey)) return; 
           
-          const conflict = checkConflict(newItem, schedules, subjects);
-          if (!conflict.hasConflict) {
-            addSchedule(newItem);
-            addedCount++;
-            addedPeriodsMap[key] = previouslyAdded + periodsToTeach;
+          const sharedGroup = getRelatedSharedItems(item);
+          if (sharedGroup.length > 0) {
+              itemsToProcess = sharedGroup;
+              processedSharedKeys.add(slotKey);
           }
-        }
       }
-      
-      const finalRemaining = progress.remaining - (addedPeriodsMap[key] || 0);
-      if (finalRemaining <= 4 && finalRemaining > 0) {
-         const msg = `Môn ${subject.name} sắp kết thúc (còn ${finalRemaining} tiết)`;
-         if (!warnings.includes(msg)) warnings.push(msg);
-      }
+
+      itemsToProcess.forEach(sourceItem => {
+          const key = `${sourceItem.subjectId}-${sourceItem.classId}`;
+          const previouslyAdded = addedPeriodsMap[key] || 0;
+          
+          const progress = calculateSubjectProgress(sourceItem.subjectId, sourceItem.classId, subject.totalPeriods, schedules);
+          const currentRemaining = progress.remaining - previouslyAdded;
+          
+          if (currentRemaining > 0) {
+            const nextDate = addDays(parseLocal(sourceItem.date), 7);
+            const newDateStr = format(nextDate, 'yyyy-MM-dd');
+            
+            const exists = schedules.some(s => 
+              s.classId === sourceItem.classId && 
+              s.date === newDateStr && 
+              s.startPeriod === sourceItem.startPeriod
+            );
+
+            if (!exists) {
+              const periodsToTeach = Math.min(sourceItem.periodCount, currentRemaining);
+              const newItem = {
+                ...sourceItem,
+                date: newDateStr,
+                periodCount: periodsToTeach,
+                status: ScheduleStatus.PENDING,
+                id: generateId() 
+              };
+              const { id, ...itemWithoutId } = newItem;
+              
+              const conflict = checkConflict(itemWithoutId as any, schedules, subjects);
+              if (!conflict.hasConflict) {
+                addSchedule(itemWithoutId as any);
+                addedCount++;
+                addedPeriodsMap[key] = previouslyAdded + periodsToTeach;
+              }
+            }
+          }
+          
+          const finalRemaining = progress.remaining - (addedPeriodsMap[key] || 0);
+          const className = classes.find(c => c.id === sourceItem.classId)?.name;
+          if (finalRemaining <= 4 && finalRemaining > 0) {
+             const msg = `Lớp ${className}: Môn ${subject.name} sắp kết thúc (còn ${finalRemaining} tiết)`;
+             if (!warnings.includes(msg)) warnings.push(msg);
+          }
+      });
     });
 
     if (warnings.length > 0) {
@@ -333,6 +459,7 @@ const ScheduleManager: React.FC = () => {
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
     const data: any[] = [];
+    const merges: any[] = [];
     
     // 1. Header Row
     const header = ['Buổi', 'Tiết', ...weekDays.map(d => format(d, 'EEEE - dd/MM', { locale: vi }).toUpperCase())];
@@ -343,7 +470,7 @@ const ScheduleManager: React.FC = () => {
         const sessionName = p === 1 ? 'Sáng' : (p === 6 ? 'Chiều' : '');
         const rowData: any[] = [sessionName, p];
 
-        weekDays.forEach(day => {
+        weekDays.forEach((day, dayIndex) => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const item = filteredSchedules.find(s => s.date === dateStr && s.startPeriod <= p && (s.startPeriod + s.periodCount) > p);
             
@@ -363,6 +490,14 @@ const ScheduleManager: React.FC = () => {
                     cellText += `\nTiết: ${displayCumulative}/${subj?.totalPeriods}`;
                     
                     rowData.push(cellText);
+
+                    // Add Merge for Multi-period classes
+                    if (item.periodCount > 1) {
+                        merges.push({
+                            s: { r: p, c: dayIndex + 2 }, // Row index is 'p' because header is index 0
+                            e: { r: p + item.periodCount - 1, c: dayIndex + 2 }
+                        });
+                    }
                 } else {
                     rowData.push(null); 
                 }
@@ -386,10 +521,53 @@ const ScheduleManager: React.FC = () => {
     if(!ws['!merges']) ws['!merges'] = [];
     ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 5, c: 0 } });
     ws['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 10, c: 0 } });
+    
+    // Add dynamic class merges
+    ws['!merges'].push(...merges);
 
+    // Footer merges
     const footerRowStart = 12;
     ws['!merges'].push({ s: { r: footerRowStart, c: 2 }, e: { r: footerRowStart, c: 7 } });
     ws['!merges'].push({ s: { r: footerRowStart + 1, c: 2 }, e: { r: footerRowStart + 1, c: 7 } });
+
+    // APPLY STYLES
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+    for (let R = range.s.r; R <= 10; ++R) { // Only style the grid part (Rows 0-10)
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!ws[cellRef]) continue;
+
+            if (!ws[cellRef].s) ws[cellRef].s = {};
+
+            // Default Style (Borders for Grid)
+            ws[cellRef].s.font = { name: "Arial", sz: 10 };
+            ws[cellRef].s.alignment = { wrapText: true, vertical: "center" };
+            ws[cellRef].s.border = {
+                top: { style: "thin", color: { rgb: "000000" } },
+                bottom: { style: "thin", color: { rgb: "000000" } },
+                left: { style: "thin", color: { rgb: "000000" } },
+                right: { style: "thin", color: { rgb: "000000" } }
+            };
+
+            // 1. Headers (Row 0)
+            if (R === 0) {
+                ws[cellRef].s.font = { name: "Arial", sz: 10, bold: true };
+                ws[cellRef].s.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+                ws[cellRef].s.fill = { fgColor: { rgb: "EEEEEE" } };
+            }
+
+            // 2. Buổi & Tiết Columns (Col 0, 1)
+            if (C === 0 || C === 1) {
+                ws[cellRef].s.font = { name: "Arial", sz: 10, bold: true };
+                ws[cellRef].s.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+            }
+
+            // 3. Afternoon Sessions (Rows 6-10) -> Color Blue
+            if (R >= 6 && R <= 10) {
+                 ws[cellRef].s.fill = { fgColor: { rgb: "DDEBF7" } };
+            }
+        }
+    }
 
     ws['!cols'] = [
         { wch: 8 }, { wch: 5 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 },
@@ -436,7 +614,7 @@ const ScheduleManager: React.FC = () => {
                 onClick={handleExportExcel}
                 className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm font-medium"
             >
-                <FileSpreadsheet size={16} /> Xuất Excel
+                <Download size={16} /> Xuất file lịch học
             </button>
             <button 
                 onClick={() => { resetForm(); setShowAddModal(true); }}
@@ -594,13 +772,13 @@ const ScheduleManager: React.FC = () => {
       {/* Add/Edit Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50 shrink-0">
               <h3 className="font-bold text-lg">{editItem ? 'Điều chỉnh lịch' : 'Thêm lịch mới'}</h3>
               <button onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-red-500"><X /></button>
             </div>
             
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div className="p-6 space-y-4 overflow-y-auto">
               {formError && (
                  <div className="bg-red-50 text-red-600 p-3 rounded flex items-center text-sm">
                    <AlertCircle size={16} className="mr-2" /> {formError}
@@ -616,7 +794,7 @@ const ScheduleManager: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Lớp học</label>
+                    <label className="block text-sm font-medium mb-1">Lớp chính</label>
                     <input type="text" value={classes.find(c => c.id === selectedClassId)?.name} disabled className="w-full border rounded p-2 bg-gray-100" />
                   </div>
               </div>
@@ -643,41 +821,102 @@ const ScheduleManager: React.FC = () => {
                 </select>
               </div>
 
+              {/* NEW: Multi-Select for Shared Subjects */}
+              {isFormSubjectShared && !editItem && (
+                  <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                    <label className="block text-sm font-bold mb-2 text-blue-800 flex items-center">
+                        <Users size={16} className="mr-2"/> Chọn các lớp học ghép (Môn chung)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                        {classes.map(cls => (
+                            <label key={cls.id} className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${selectedSharedClasses.includes(cls.id) ? 'bg-blue-100' : 'hover:bg-white'}`}>
+                                <input
+                                    type="checkbox"
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                    checked={selectedSharedClasses.includes(cls.id)}
+                                    disabled={cls.id === selectedClassId} // Current class is mandatory
+                                    onChange={(e) => {
+                                        if (e.target.checked) {
+                                            setSelectedSharedClasses([...selectedSharedClasses, cls.id]);
+                                        } else {
+                                            setSelectedSharedClasses(selectedSharedClasses.filter(id => id !== cls.id));
+                                        }
+                                    }}
+                                />
+                                <span className={cls.id === selectedClassId ? 'font-bold' : ''}>{cls.name}</span>
+                            </label>
+                        ))}
+                    </div>
+                  </div>
+              )}
+
               <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">Tiết bắt đầu</label>
-                    <select value={editItem ? editItem.startPeriod : formStartPeriod} onChange={(e) => editItem ? setEditItem({...editItem, startPeriod: Number(e.target.value)}) : setFormStartPeriod(Number(e.target.value))} className="w-full border rounded p-2">
+                    <select 
+                        value={editItem ? editItem.startPeriod : formStartPeriod} 
+                        onChange={(e) => {
+                            const val = Number(e.target.value);
+                            const maxSession = val <= 5 ? 6 - val : 11 - val;
+                            
+                            if (editItem) {
+                                // Adjust count if it exceeds new max
+                                const newCount = Math.min(editItem.periodCount, maxSession);
+                                setEditItem({...editItem, startPeriod: val, periodCount: newCount});
+                            } else {
+                                const newCount = Math.min(formPeriodCount, maxSession);
+                                setFormStartPeriod(val);
+                                setFormPeriodCount(newCount);
+                            }
+                        }} 
+                        className="w-full border rounded p-2"
+                    >
                         {PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
                    <div>
                     <label className="block text-sm font-medium mb-1">Số tiết</label>
-                    <input type="number" min="1" max="5" value={editItem ? editItem.periodCount : formPeriodCount} onChange={(e) => {
-                      let val = Number(e.target.value);
-                      const subjId = editItem ? editItem.subjectId : formSubjectId;
-                      const type = editItem ? editItem.type : formType;
+                    <input 
+                        type="number" 
+                        min="1" 
+                        max={(() => {
+                            const start = editItem ? editItem.startPeriod : formStartPeriod;
+                            return start <= 5 ? 6 - start : 11 - start;
+                        })()}
+                        value={editItem ? editItem.periodCount : formPeriodCount} 
+                        onChange={(e) => {
+                            let val = Number(e.target.value);
+                            const start = editItem ? editItem.startPeriod : formStartPeriod;
+                            const maxSession = start <= 5 ? 6 - start : 11 - start;
+                            
+                            if (val > maxSession) val = maxSession;
 
-                      if (type === 'class' && subjId) {
-                           const subject = subjects.find(s => s.id === subjId);
-                           if (subject) {
-                               const used = schedules.filter(s =>
-                                  s.subjectId === subjId &&
-                                  s.classId === selectedClassId &&
-                                  s.status !== ScheduleStatus.OFF &&
-                                  (editItem ? s.id !== editItem.id : true)
-                               ).reduce((acc, curr) => acc + curr.periodCount, 0);
+                            const subjId = editItem ? editItem.subjectId : formSubjectId;
+                            const type = editItem ? editItem.type : formType;
 
-                               const remaining = Math.max(0, subject.totalPeriods - used);
-                               if (val > remaining) {
-                                   alert(`Môn học chỉ còn ${remaining} tiết`);
-                                   val = remaining;
-                               }
-                           }
-                      }
+                            if (type === 'class' && subjId) {
+                                const subject = subjects.find(s => s.id === subjId);
+                                if (subject) {
+                                    const used = schedules.filter(s =>
+                                        s.subjectId === subjId &&
+                                        s.classId === selectedClassId &&
+                                        s.status !== ScheduleStatus.OFF &&
+                                        (editItem ? s.id !== editItem.id : true)
+                                    ).reduce((acc, curr) => acc + curr.periodCount, 0);
 
-                      if (editItem) setEditItem({...editItem, periodCount: val});
-                      else setFormPeriodCount(val);
-                    }} className="w-full border rounded p-2" />
+                                    const remaining = Math.max(0, subject.totalPeriods - used);
+                                    if (val > remaining) {
+                                        alert(`Môn học chỉ còn ${remaining} tiết`);
+                                        val = remaining;
+                                    }
+                                }
+                            }
+
+                            if (editItem) setEditItem({...editItem, periodCount: val});
+                            else setFormPeriodCount(val);
+                        }} 
+                        className="w-full border rounded p-2" 
+                    />
                   </div>
                    <div>
                     <label className="block text-sm font-medium mb-1">Phòng học</label>
@@ -692,7 +931,7 @@ const ScheduleManager: React.FC = () => {
                           {Object.values(ScheduleStatus).map(status => (
                               <button 
                                 key={status}
-                                onClick={() => updateSchedule(editItem.id, { status })}
+                                onClick={() => handleStatusChange(status)}
                                 className={`px-2 py-1 rounded text-xs border ${editItem.status === status ? 'bg-yellow-500 text-white border-yellow-600' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
                               >
                                   {status}
@@ -706,9 +945,9 @@ const ScheduleManager: React.FC = () => {
               )}
             </div>
 
-            <div className="p-4 border-t bg-gray-50 flex justify-between">
+            <div className="p-4 border-t bg-gray-50 flex justify-between shrink-0">
               {editItem ? (
-                 <button onClick={() => { deleteSchedule(editItem.id); setShowAddModal(false); }} className="text-red-600 hover:bg-red-50 px-3 py-2 rounded flex items-center">
+                 <button onClick={handleDeleteItem} className="text-red-600 hover:bg-red-50 px-3 py-2 rounded flex items-center">
                     <Trash2 size={16} className="mr-1" /> Xóa
                  </button>
               ) : <div></div>}
