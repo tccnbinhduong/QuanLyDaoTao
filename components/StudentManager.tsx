@@ -116,7 +116,7 @@ const StudentManager: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset immediately to prevent input freezing
+    // FIX: Reset input value immediately to release focus lock
     e.target.value = '';
 
     const reader = new FileReader();
@@ -129,7 +129,7 @@ const StudentManager: React.FC = () => {
             const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
             
             if (!data || data.length < 2) {
-                setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
+                setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 50);
                 return;
             }
 
@@ -150,13 +150,14 @@ const StudentManager: React.FC = () => {
 
             if (newStudents.length > 0) {
                 importStudents(newStudents);
-                setTimeout(() => alert(`Đã nhập thành công ${newStudents.length} học sinh.`), 100);
+                // FIX: Defer alert
+                setTimeout(() => alert(`Đã nhập thành công ${newStudents.length} học sinh.`), 50);
             } else {
-                setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ trong file Excel."), 100);
+                setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ trong file Excel."), 50);
             }
         } catch (error) {
             console.error(error);
-            setTimeout(() => alert("Lỗi khi đọc file Excel. Vui lòng kiểm tra lại định dạng file."), 100);
+            setTimeout(() => alert("Lỗi khi đọc file Excel. Vui lòng kiểm tra lại định dạng file."), 50);
         }
     };
     reader.readAsBinaryString(file);

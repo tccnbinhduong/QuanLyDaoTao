@@ -85,12 +85,48 @@ const ScheduleManager: React.FC = () => {
   useEffect(() => {
     if (showAddModal && !editItem) {
         // If it's a shared subject, ensure current class is selected.
-        // If switching to a shared subject, reset to just current class initially
         if (!selectedSharedClasses.includes(selectedClassId)) {
             setSelectedSharedClasses([selectedClassId]);
         }
     }
   }, [showAddModal, formSubjectId, selectedClassId]);
+
+  // NEW: Auto-suggest shared classes based on history
+  useEffect(() => {
+    if (!showAddModal || editItem || !isFormSubjectShared || !formSubjectId) return;
+
+    // 1. Find schedules for this subject & current class
+    const mySchedules = schedules.filter(s => 
+        s.subjectId === formSubjectId && s.classId === selectedClassId
+    );
+
+    if (mySchedules.length === 0) return;
+
+    // 2. Count co-occurrence with other classes
+    const siblingCounts: Record<string, number> = {};
+    
+    mySchedules.forEach(myItem => {
+        const siblings = schedules.filter(s => 
+            s.subjectId === myItem.subjectId &&
+            s.date === myItem.date &&
+            s.startPeriod === myItem.startPeriod &&
+            s.classId !== selectedClassId
+        );
+        
+        siblings.forEach(sib => {
+            siblingCounts[sib.classId] = (siblingCounts[sib.classId] || 0) + 1;
+        });
+    });
+
+    const suggestedClasses = Object.keys(siblingCounts);
+    
+    if (suggestedClasses.length > 0) {
+        setSelectedSharedClasses(prev => {
+            const uniqueSet = new Set([...prev, ...suggestedClasses]);
+            return Array.from(uniqueSet);
+        });
+    }
+  }, [showAddModal, formSubjectId, isFormSubjectShared, editItem, selectedClassId, schedules]);
 
 
   // Close context menu on click outside
@@ -261,16 +297,18 @@ const ScheduleManager: React.FC = () => {
       const originalItem = schedules.find(s => s.id === editItem.id);
       if (!originalItem) return;
 
+      // Tìm tất cả các buổi học liên quan (nếu là môn chung)
       const relatedItems = getRelatedSharedItems(originalItem);
       
-      if (relatedItems.length > 1) {
-          if (!window.confirm(`Đây là môn học chung đang dạy cho ${relatedItems.length} lớp. Bạn có muốn xóa lịch của TẤT CẢ các lớp này không?`)) {
-              return;
-          }
-      }
+      const isShared = relatedItems.length > 1;
+      const message = isShared 
+        ? `Đây là MÔN HỌC CHUNG (${relatedItems.length} lớp). Hệ thống sẽ xóa lịch của TẤT CẢ các lớp này.\nBạn có chắc chắn muốn xóa không?`
+        : 'Bạn có chắc chắn muốn xóa lịch này?';
 
-      relatedItems.forEach(item => deleteSchedule(item.id));
-      setShowAddModal(false);
+      if (window.confirm(message)) {
+          relatedItems.forEach(item => deleteSchedule(item.id));
+          setShowAddModal(false);
+      }
   }
 
   const handleStatusChange = (newStatus: ScheduleStatus) => {
@@ -281,7 +319,7 @@ const ScheduleManager: React.FC = () => {
 
     const relatedItems = getRelatedSharedItems(originalItem);
     
-    // Auto-update all shared items
+    // Auto-update all shared items (Syncs Status change)
     relatedItems.forEach(item => {
         updateSchedule(item.id, { status: newStatus });
     });
@@ -340,7 +378,7 @@ const ScheduleManager: React.FC = () => {
             });
         }
     } else {
-        // Add Mode
+        // Add Mode (Includes adding Make-up classes for shared subjects)
         const targetClassIds = isFormSubjectShared ? selectedSharedClasses : [classId];
 
         // 1. Validation Phase

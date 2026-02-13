@@ -33,6 +33,9 @@ const SystemManager: React.FC = () => {
   const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
+      
+      // FIX: Reset input value immediately to release focus lock
+      e.target.value = '';
 
       const reader = new FileReader();
       reader.onload = (evt) => {
@@ -40,11 +43,11 @@ const SystemManager: React.FC = () => {
               const json = evt.target?.result as string;
               const data = JSON.parse(json) as AppState;
               loadData(data);
-              alert("Khôi phục dữ liệu thành công!");
+              // FIX: Defer alert
+              setTimeout(() => alert("Khôi phục dữ liệu thành công!"), 50);
           } catch (error) {
-              alert("Lỗi: File dữ liệu không hợp lệ.");
+              setTimeout(() => alert("Lỗi: File dữ liệu không hợp lệ."), 50);
           }
-          if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsText(file);
   };

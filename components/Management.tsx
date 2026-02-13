@@ -104,7 +104,7 @@ const Management: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Reset immediately to prevent input freezing
+      // FIX: Reset input value immediately to release focus lock
       e.target.value = '';
 
       const reader = new FileReader();
@@ -117,7 +117,7 @@ const Management: React.FC = () => {
               const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
               
               if (!data || data.length < 2) {
-                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 50);
                   return;
               }
 
@@ -136,13 +136,14 @@ const Management: React.FC = () => {
 
               if (newTeachers.length > 0) {
                   importTeachers(newTeachers);
-                  setTimeout(() => alert(`Đã nhập thành công ${newTeachers.length} giáo viên.`), 100);
+                  // FIX: Defer alert
+                  setTimeout(() => alert(`Đã nhập thành công ${newTeachers.length} giáo viên.`), 50);
               } else {
-                  setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
+                  setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 50);
               }
           } catch (error) {
               console.error(error);
-              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 50);
           }
       };
       reader.readAsBinaryString(file);
@@ -187,7 +188,7 @@ const Management: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Reset immediately
+      // FIX: Reset input value immediately
       e.target.value = '';
 
       const reader = new FileReader();
@@ -200,7 +201,7 @@ const Management: React.FC = () => {
               const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
               if (!data || data.length < 2) {
-                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 50);
                   return;
               }
 
@@ -227,13 +228,13 @@ const Management: React.FC = () => {
                    if (missingMajors > 0) {
                        msg += `\nLưu ý: Có ${missingMajors} môn chưa tìm thấy Ngành học tương ứng trong hệ thống (vui lòng kiểm tra tên Ngành trong file Excel hoặc cập nhật thủ công).`;
                    }
-                   setTimeout(() => alert(msg), 100);
+                   setTimeout(() => alert(msg), 50);
                } else {
-                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
+                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 50);
                }
           } catch (error) {
               console.error(error);
-              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 50);
           }
       };
       reader.readAsBinaryString(file);
@@ -243,7 +244,7 @@ const Management: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Reset immediately
+      // FIX: Reset input value immediately
       e.target.value = '';
 
       const reader = new FileReader();
@@ -256,7 +257,7 @@ const Management: React.FC = () => {
               const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
               if (!data || data.length < 2) {
-                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 100);
+                  setTimeout(() => alert("File Excel rỗng hoặc không đúng định dạng!"), 50);
                   return;
               }
 
@@ -285,13 +286,13 @@ const Management: React.FC = () => {
                    if (missingMajors > 0) {
                        msg += `\nLưu ý: Có ${missingMajors} lớp chưa tìm thấy Ngành học tương ứng trong hệ thống.`;
                    }
-                   setTimeout(() => alert(msg), 100);
+                   setTimeout(() => alert(msg), 50);
                } else {
-                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 100);
+                   setTimeout(() => alert("Không tìm thấy dữ liệu hợp lệ."), 50);
                }
           } catch (error) {
               console.error(error);
-              setTimeout(() => alert("Lỗi khi đọc file Excel."), 100);
+              setTimeout(() => alert("Lỗi khi đọc file Excel."), 50);
           }
       };
       reader.readAsBinaryString(file);
